@@ -35,7 +35,7 @@ doctor prescribed.
 **Linux (Pop!_OS, Ubuntu, Debian)**: download `dose_<version>_all.deb` from the
 [releases](https://github.com/Akii-G/dose-tracker/releases), then:
 
-    sudo apt install ./dose_1.0.0_all.deb
+    sudo apt install ./dose_1.0.1_all.deb
 
 The reminders and the phone sync run in the background (the `dose-background` user service),
 also when the window is closed.

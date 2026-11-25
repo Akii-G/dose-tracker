@@ -163,7 +163,7 @@ struct DoseRow: View {
     private var detail: String {
         var parts = [Units.amount(slot.med.amount, slot.med.unit)]
         if !slot.med.note.isEmpty { parts.append(slot.med.note) }
-        if slot.dose == nil && (day < Day.today || (day == Day.today && minute > slot.time)) { parts.append(tr("Not marked")) }
+        if slot.dose == nil && (day < Day.today || (day == Day.today && minute > slot.time)) { parts.append(tr("Not taken")) }
         return parts.joined(separator: " · ")
     }
 

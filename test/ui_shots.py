@@ -30,6 +30,7 @@ s.take_now("d", day=t, at="11:20")
 s.put_medicine(dict(s.meds["a"], amount=1.5), when=t - dt.timedelta(days=12))
 s.put_medicine(dict(s.meds["a"], stock={"count": 24, "set": m.now_stamp()}))
 s.save()
+m.set_pref("style", os.environ.get("DOSE_STYLE", "default"))
 app = m._make_app_class()(); err = []
 
 def snap(w, name):

@@ -28,7 +28,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_ID = "app.dose.Dose"
 SYNC_PORT = 8766
 IS_WINDOWS = sys.platform == "win32"
@@ -71,7 +71,7 @@ def save_config(cfg):
 
 
 PREF_DEFAULTS = {"language": "auto", "remind": True, "follow_up": True, "discreet": False,
-                 "sync": False}
+                 "sync": False, "style": "default"}
 
 
 def prefs():
@@ -931,6 +931,238 @@ CSS = """
 """
 
 
+# ----------------------------------------------------------------- styles
+# The same two styles as Sottovoce: GNOME (libadwaita as it is) and Tahoe (macOS-like: frosted
+# translucent cards on a soft colour wash, pill controls), both in Sottovoce's violet.
+
+STYLES = [("default", tr("Default (GNOME)")), ("tahoe", tr("Tahoe (macOS-like)"))]
+
+_TAHOE_COMMON = """
+
+viewswitcher { border-radius: 999px; padding: 3px; }
+viewswitcher button { border-radius: 999px; border: none; box-shadow: none; background: transparent; min-height: 28px; }
+.dose-day { border-radius: 12px; }
+.dose-low { border-radius: 16px; }
+window, popover, tooltip {
+  font-family: "SF Pro Text", "Inter", "Cantarell", "Fira Sans", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}
+headerbar {
+  background: transparent; background-image: none; box-shadow: none; border: none;
+  min-height: 52px; padding: 0 10px;
+}
+headerbar button, headerbar menubutton > button {
+  border-radius: 999px; min-height: 30px; padding: 0 12px;
+}
+stackswitcher {
+  border-radius: 999px; padding: 3px;
+}
+stackswitcher > button {
+  border-radius: 999px; border: none; box-shadow: none; background: transparent;
+  min-width: 52px; min-height: 28px; font-weight: 600; padding-left: 14px; padding-right: 14px;
+}
+.card {
+  border-radius: 24px; background-image: none;
+}
+headerbar:backdrop { background: transparent; background-image: none; }
+stackswitcher { background-image: none; }
+button { border-radius: 999px; background-image: none; text-shadow: none; -gtk-icon-shadow: none; }
+button.flat, menubutton > button.flat {
+  border-radius: 14px; background-color: transparent; border-color: transparent;
+  box-shadow: none; color: inherit;
+}
+button.suggested-action {
+  background-color: #5c56b4; color: #ffffff; font-weight: 600;
+}
+button.suggested-action:hover { background-color: #6f67c9; }
+button.suggested-action:active { background-color: #4d48a0; }
+button.destructive-action { background-color: #ff453a; color: #ffffff; }
+button.suggested-action label, button.destructive-action label,
+togglebutton:checked:not(.flat):not(.suggested-action):not(.destructive-action) label, box > button:checked:not(.flat):not(.suggested-action):not(.destructive-action) label, button.dose-chip:checked:not(.flat):not(.suggested-action):not(.destructive-action) label { color: #ffffff; }
+togglebutton:checked, button:checked { font-weight: 700; }
+entry, spinbutton, dropdown > button, searchentry {
+  border-radius: 12px; min-height: 32px;
+}
+.boxed-list { border-radius: 18px; }
+.boxed-list > row:first-child { border-top-left-radius: 18px; border-top-right-radius: 18px; }
+.boxed-list > row:last-child { border-bottom-left-radius: 18px; border-bottom-right-radius: 18px; }
+frame { border-radius: 14px; }
+frame > border { border-radius: 14px; }
+popover > contents { border-radius: 18px; padding: 6px; }
+popover modelbutton { border-radius: 10px; min-height: 32px; }
+switch { border-radius: 999px; }
+switch slider { border-radius: 999px; }
+checkbutton check { border-radius: 7px; }
+.title-1, .title-2, .title-3 { font-weight: 700; }
+/* tabs: one glass pill holding the pages; the open page is a raised pill */
+headerbar stackswitcher > button:not(.flat):not(.suggested-action):not(.destructive-action),
+stackswitcher > button:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background: transparent; background-image: none; border: none; box-shadow: none;
+}
+/* macOS-style window buttons: red, yellow, green dots */
+windowcontrols { margin: 0 2px; }
+windowcontrols > button:not(.flat):not(.suggested-action):not(.destructive-action), windowcontrols > button {
+  min-width: 14px; min-height: 14px; padding: 0; margin: 0 4px;
+  border-radius: 999px; border: none; box-shadow: none; background-image: none;
+}
+windowcontrols > button.close:not(.flat):not(.suggested-action):not(.destructive-action), windowcontrols > button.close { background-color: #ff5f57; }
+windowcontrols > button.minimize:not(.flat):not(.suggested-action):not(.destructive-action), windowcontrols > button.minimize { background-color: #febc2e; }
+windowcontrols > button.maximize:not(.flat):not(.suggested-action):not(.destructive-action), windowcontrols > button.maximize { background-color: #28c840; }
+windowcontrols > button image { color: transparent; -gtk-icon-size: 8px; }
+/* newer libadwaita (1.6+, as on Windows) draws the circle on the image with padding: undo it,
+   or the dots become tall pills */
+windowcontrols > button > image { padding: 0; margin: 0; min-width: 8px; min-height: 8px;
+  border-radius: 999px; background-color: transparent; background-image: none; box-shadow: none; }
+windowcontrols:hover > button image { color: rgba(0,0,0,0.55); }
+windowcontrols > button:backdrop { background-color: rgba(128,128,128,0.35); }
+"""
+
+_TAHOE_LIGHT = _TAHOE_COMMON + """
+
+viewswitcher { background-color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.75); }
+viewswitcher button:checked { background-color: rgba(255,255,255,0.96); box-shadow: 0 1px 4px rgba(0,0,0,0.14); }
+window.background { background-image: linear-gradient(135deg, #e6e3fa 0%, #f2e7f4 45%, #e9e7f7 100%); }
+.dose-time-head, .dose-taken { color: #5c56b4; }
+label.dose-late { color: #cf3f3f; }
+label, entry, text, textview { color: #1d1d1f; }
+.dim-label, label.dim-label { color: rgba(60,60,67,0.62); }
+window.background {
+  background-color: #eef1f8;
+  background-image: linear-gradient(135deg, #dde7fb 0%, #f2e7f4 45%, #e3f2ef 100%);
+  color: #1d1d1f;
+}
+stackswitcher {
+  background-color: rgba(255,255,255,0.45);
+  border: 1px solid rgba(255,255,255,0.75);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+stackswitcher > button { color: #3a3a3c; }
+headerbar stackswitcher > button:checked:not(.flat):not(.suggested-action):not(.destructive-action), stackswitcher > button:checked:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: rgba(255,255,255,0.96); color: #1d1d1f; border: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14);
+}
+.card {
+  background-color: rgba(255,255,255,0.58);
+  border: 1px solid rgba(255,255,255,0.85);
+  box-shadow: 0 10px 30px rgba(31,38,69,0.10), inset 0 1px rgba(255,255,255,0.9);
+  color: #1d1d1f;
+}
+button:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: rgba(255,255,255,0.62);
+  border: 1px solid rgba(255,255,255,0.85);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  color: #1d1d1f;
+}
+button:not(.flat):not(.suggested-action):not(.destructive-action):hover {
+  background-color: rgba(255,255,255,0.85);
+}
+togglebutton:checked:not(.flat):not(.suggested-action):not(.destructive-action), box > button:checked:not(.flat):not(.suggested-action):not(.destructive-action), button.dose-chip:checked:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: #5c56b4; color: #ffffff; border-color: #5c56b4;
+}
+button.flat:checked { background-color: rgba(92,86,180,0.16); color: #4d48a0; }
+button.flat:hover { background-color: rgba(255,255,255,0.55); }
+entry, searchentry, dropdown > button {
+  background-color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+textview, textview > text { background-color: transparent; }
+frame { background-color: rgba(255,255,255,0.6); border-color: rgba(0,0,0,0.06); }
+.boxed-list { background-color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.8); }
+.boxed-list > row { background-color: transparent; }
+.boxed-list > row:hover { background-color: rgba(255,255,255,0.5); }
+popover > contents {
+  background-color: rgba(250,250,253,0.94);
+  border: 1px solid rgba(255,255,255,0.9);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
+switch:checked { background-color: #5c56b4; }
+.dim-label { color: rgba(60,60,67,0.62); }
+"""
+
+_TAHOE_DARK = _TAHOE_COMMON + """
+
+viewswitcher { background-color: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10); }
+viewswitcher button:checked { background-color: rgba(255,255,255,0.18); box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+window.background { background-image: linear-gradient(135deg, #1f1d33 0%, #261d31 50%, #1b1a2c 100%); }
+.dose-time-head, .dose-taken { color: #b7b1ec; }
+label.dose-late { color: #ff6b61; }
+label, entry, text, textview { color: #f5f5f7; }
+.dim-label, label.dim-label { color: rgba(235,235,245,0.6); }
+window.background {
+  background-color: #17181f;
+  background-image: linear-gradient(135deg, #1b2233 0%, #261d31 50%, #142629 100%);
+  color: #f5f5f7;
+}
+stackswitcher {
+  background-color: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+stackswitcher > button { color: #d1d1d6; }
+headerbar stackswitcher > button:checked:not(.flat):not(.suggested-action):not(.destructive-action), stackswitcher > button:checked:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: rgba(255,255,255,0.18); color: #ffffff; border: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.card {
+  background-color: rgba(44,44,54,0.55);
+  border: 1px solid rgba(255,255,255,0.09);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.35), inset 0 1px rgba(255,255,255,0.07);
+  color: #f5f5f7;
+}
+button:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: rgba(255,255,255,0.09);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: #f5f5f7;
+}
+button:not(.flat):not(.suggested-action):not(.destructive-action):hover {
+  background-color: rgba(255,255,255,0.15);
+}
+togglebutton:checked:not(.flat):not(.suggested-action):not(.destructive-action), box > button:checked:not(.flat):not(.suggested-action):not(.destructive-action), button.dose-chip:checked:not(.flat):not(.suggested-action):not(.destructive-action) {
+  background-color: #5c56b4; color: #ffffff; border-color: #5c56b4;
+}
+button.flat:checked { background-color: rgba(142,134,216,0.30); color: #ffffff; }
+button.flat:hover { background-color: rgba(255,255,255,0.07); }
+entry, searchentry, dropdown > button {
+  background-color: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+textview, textview > text { background-color: transparent; }
+frame { background-color: rgba(0,0,0,0.18); border-color: rgba(255,255,255,0.08); }
+.boxed-list { background-color: rgba(44,44,54,0.5); border: 1px solid rgba(255,255,255,0.08); }
+.boxed-list > row { background-color: transparent; }
+.boxed-list > row:hover { background-color: rgba(255,255,255,0.05); }
+popover > contents {
+  background-color: rgba(40,40,48,0.96);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+}
+switch:checked { background-color: #8e86d8; }
+.dim-label { color: rgba(235,235,245,0.6); }
+"""
+
+_style = {"provider": None}
+
+
+def apply_style(name=None):
+    """Switch the look of every Dose window: 'default' or 'tahoe'."""
+    name = name or prefs()["style"]
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    if _style["provider"] is not None:
+        Gtk.StyleContext.remove_provider_for_display(display, _style["provider"])
+        _style["provider"] = None
+    if name != "tahoe":
+        return
+    provider = Gtk.CssProvider()
+    css = _TAHOE_DARK if Adw.StyleManager.get_default().get_dark() else _TAHOE_LIGHT
+    try:
+        provider.load_from_string(css)
+    except AttributeError:
+        provider.load_from_data(css.encode("utf-8"))
+    # above ~/.config/gtk-4.0/gtk.css, where many system themes put their rules
+    Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+    _style["provider"] = provider
+
+
 def make_label(text, css=None, xalign=0.0, wrap=False, **kw):
     lab = Gtk.Label(label=text, xalign=xalign, wrap=wrap, **kw)
     for c in (css or "").split():
@@ -1032,7 +1264,7 @@ class DoseRow(Gtk.ListBoxRow):
         else:
             late = day < today() or (day == today() and dt.datetime.now().strftime("%H:%M") > time_)
             if late:
-                box.append(make_label(tr("Not marked"), "dose-late caption"))
+                box.append(make_label(tr("Not taken"), "dose-late caption"))
             skip = Gtk.Button(label=tr("Skip"), valign=Gtk.Align.CENTER)
             skip.connect("clicked", lambda *_: self.mark("skipped"))
             taken = Gtk.Button(label=tr("Taken"), valign=Gtk.Align.CENTER)
@@ -1689,6 +1921,18 @@ class PrefsWindow(Gtk.Window):
             sw.connect("notify::active", lambda s, _p, k=key: set_pref(k, s.get_active()))
             row.add_suffix(sw)
             lb.append(row)
+        row = Adw.ActionRow(title=tr("Style"))
+        styles = Gtk.DropDown.new_from_strings([label for _k, label in STYLES])
+        styles.set_selected([k for k, _l in STYLES].index(p["style"]) if p["style"] in dict(STYLES) else 0)
+        styles.set_valign(Gtk.Align.CENTER)
+
+        def on_style(d, _p):
+            key = STYLES[d.get_selected()][0]
+            set_pref("style", key)
+            apply_style(key)
+        styles.connect("notify::selected", on_style)
+        row.add_suffix(styles)
+        lb.append(row)
         row = Adw.ActionRow(title=tr("Language"), subtitle=tr("Applies the next time Dose opens."))
         dd = Gtk.DropDown.new_from_strings([tr(name) for _k, name in LANGUAGES])
         dd.set_selected([k for k, _n in LANGUAGES].index(p["language"]))
@@ -1809,6 +2053,8 @@ def _make_app_class():
                     css.load_from_data(CSS.encode())
                 Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                           Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                apply_style()
+                Adw.StyleManager.get_default().connect("notify::dark", lambda *_: apply_style())
                 threading.Thread(target=start_background, daemon=True).start()
                 win = MainWindow(self)
             win.present()
