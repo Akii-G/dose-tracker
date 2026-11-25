@@ -6,7 +6,10 @@ import shutil
 root = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 datas = [(os.path.join(root, "po", "*.po"), "po"),
          (os.path.join(root, "data", "medicines-it.tsv"), "data"),
-         (os.path.join(root, "data", "app.dose.Dose.svg"), "share/icons/hicolor/scalable/apps")]
+         (os.path.join(root, "data", "app.dose.Dose.svg"), "share/icons/hicolor/scalable/apps"),
+         # a PNG too: the bundled GTK may have no SVG loader. Found directly in share/icons (unthemed)
+         (os.path.join(SPECPATH, "app.dose.Dose.png"), "share/icons"),
+         (os.path.join(SPECPATH, "app.dose.Dose.png"), "share/icons/hicolor/256x256/apps")]
 
 # GLib starts gdbus.exe for GApplication on Windows; without it GLib warns and may give up
 gdbus = shutil.which("gdbus.exe") or shutil.which("gdbus")
