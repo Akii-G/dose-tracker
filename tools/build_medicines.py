@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds data/medicines-it.tsv from AIFA's open data (CC-BY 4.0, https://www.aifa.gov.it/open-data):
 one line per medicine name, strength and form, with its active ingredient, for the search when
-you add a medicine. Run by CI before each build, so the list stays current; never at run time.
+you add a medicine, and the AIC codes of its packs, to find it from the barcode on the box. Run by CI before each build, so the list stays current; never at run time.
 
 Usage: tools/build_medicines.py [confezioni_fornitura.csv]   (downloads it when not given)"""
 import csv, io, os, re, sys, urllib.request
@@ -32,8 +32,16 @@ def strength(desc):
     return s.lower().replace(" ui", " UI").replace("mcg", "mcg")
 
 
+def packs(codes):
+    """['012345045', '012345057', '067890011'] -> '012345:045,057;067890:011' (AIC = 6 + 3 digits)."""
+    groups = {}
+    for c in sorted(codes):
+        groups.setdefault(c[:6], []).append(c[6:])
+    return ";".join("%s:%s" % (k, ",".join(v)) for k, v in groups.items())
+
+
 def build(text):
-    seen, rows = set(), []
+    seen, rows, codes = set(), [], {}
     for r in csv.DictReader(io.StringIO(text), delimiter=";"):
         if r.get("STATO_AMMINISTRATIVO") != "Autorizzata":
             continue
@@ -48,11 +56,21 @@ def build(text):
         if line not in seen:
             seen.add(line)
             rows.append(line)
-    # a line without a strength adds nothing when the same name and form has one
-    named = {(r[0], r[2]) for r in rows if r[1]}
+        aic = re.sub(r"\D", "", r.get("CODICE_AIC") or "")
+        if len(aic) == 9:
+            codes.setdefault(line, set()).add(aic)
+    # a line without a strength adds nothing when the same name and form has one;
+    # its packs go to the line that has the strength
+    named = {}
+    for r in rows:
+        if r[1]:
+            named.setdefault((r[0], r[2]), r)
+    for r in rows:
+        if not r[1] and (r[0], r[2]) in named:
+            codes.setdefault(named[(r[0], r[2])], set()).update(codes.get(r, ()))
     rows = [r for r in rows if r[1] or (r[0], r[2]) not in named]
     rows.sort(key=lambda x: (x[0].lower(), x[1], x[2]))
-    return rows
+    return [r + (packs(codes.get(r, ())),) for r in rows]
 
 
 def main():
@@ -64,7 +82,8 @@ def main():
     rows = build(text)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
-        f.write("# Medicines authorised in Italy, from AIFA open data (CC-BY 4.0): name, strength, form, active ingredient\n")
+        f.write("# Medicines authorised in Italy, from AIFA open data (CC-BY 4.0): name, strength, form, active ingredient, "
+                "AIC codes of the packs (6 digits:last 3 digits)\n")
         for row in rows:
             f.write("\t".join(c.replace("\t", " ") for c in row) + "\n")
     print("%d medicines -> %s (%d KB)" % (len(rows), OUT, os.path.getsize(OUT) // 1024))

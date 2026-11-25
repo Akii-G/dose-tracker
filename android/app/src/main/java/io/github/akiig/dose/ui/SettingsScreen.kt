@@ -18,6 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.akiig.dose.trn
+import io.github.akiig.dose.Day
+import io.github.akiig.dose.Backup
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -34,7 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onReport: () -> Unit = {}) {
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -48,6 +53,21 @@ fun SettingsScreen() {
     }
     val version = remember {
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+    }
+    var dataNote by remember { mutableStateOf("") }
+    val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) dataNote = try {
+            context.contentResolver.openOutputStream(uri)?.use { Backup.write(app.store, it, version) }
+            tr("Backed up. Keep the file somewhere safe, like your cloud or a computer.")
+        } catch (e: Exception) { tr("Could not save: %@", e.localizedMessage ?: "") }
+    }
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val text = try { context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } } catch (e: Exception) { null }
+            val n = text?.let { Backup.restore(app.store, it) }
+            dataNote = if (n == null) tr("This isn't a Dose backup.")
+                else trn("Restored: %@ change.", "Restored: %@ changes.", n) + " " + tr("What you had here stays; the backup only adds what's missing or newer.")
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -99,6 +119,14 @@ fun SettingsScreen() {
                 SwitchRow(tr("Remind me again after 30 minutes"), app.followUp) { app.chooseFollowUp(it) }
                 Line()
                 SwitchRow(tr("Discreet notifications"), app.discreet) { app.chooseDiscreet(it) }
+            }
+            Section(tr("Your data"), footer = dataNote.ifEmpty {
+                tr("A backup is one file with all your medicines and doses. Restoring it on a new phone brings them back.") }) {
+                ActionRow(tr("Report for your doctor")) { onReport() }
+                Line()
+                ActionRow(tr("Back up")) { backup.launch("Dose-backup-${Day.today}.json") }
+                Line()
+                ActionRow(tr("Restore from a backup")) { restore.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*")) }
             }
             Section(tr("About"),
                 footer = tr("Your medicines, quietly. The sister app of Sottovoce. Medicine names: AIFA open data (CC BY 4.0). Dose doesn't give medical advice: follow what your doctor prescribed.")) {

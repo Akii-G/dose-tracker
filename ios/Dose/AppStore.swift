@@ -165,7 +165,7 @@ final class AppStore {
         let key = AppStore.slotID(medID, day, time)
         let now = Stamp.now()
         doses[key] = DoseRecord(id: key, med: medID, day: day, time: time, status: status,
-                                at: at ?? Day.nowTime, amount: m.amount, stamp: now, updated: now)
+                                at: at ?? Day.nowTime, amount: m.amount(at: time), stamp: now, updated: now)
         deleted[key] = nil
         if notify { changed() } else { save() }
     }

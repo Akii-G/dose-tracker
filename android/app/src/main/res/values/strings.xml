@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only what Android itself shows; the app's own text is in assets/i18n -->
+<resources>
+    <string name="read_doses_label">read your Dose medicines</string>
+    <string name="read_doses_description">Read the medicines and doses you keep in Dose (for example, Sottovoce shows them in its doctor report).</string>
+</resources>

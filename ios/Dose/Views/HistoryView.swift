@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(\.dynamicTypeSize) private var textSize
     @Environment(AppStore.self) private var store
     @State private var month = Day.date(String(Day.today.prefix(7)) + "-01") ?? Date()
     @State private var selected = Day.today
+    @State private var reporting = false
 
     var body: some View {
         NavigationStack {
@@ -33,6 +35,12 @@ struct HistoryView: View {
             }
             .navigationTitle("History")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Report for your doctor", systemImage: "doc.text") { reporting = true }
+                }
+            }
+            .sheet(isPresented: $reporting) { ReportView() }
         }
     }
 
@@ -58,16 +66,26 @@ struct HistoryView: View {
             let days = monthDays
             let lead = Day.isoWeekday(days[0]) - 1
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
-                ForEach(Day.weekdayShort, id: \.self) { name in
-                    Text(name).font(.caption2).foregroundStyle(.secondary)
+                ForEach(Array(Day.weekdayShort.enumerated()), id: \.offset) { _, name in
+                    Text(textSize.isAccessibilitySize ? String(name.prefix(1)) : name)
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
                 ForEach(0..<lead, id: \.self) { _ in Color.clear.frame(height: 36) }
                 ForEach(days, id: \.self) { d in dayCell(d) }
             }
-            HStack(spacing: 14) {
-                legend(Palette.taken, tr("All taken"))
-                legend(Palette.some, tr("Some"))
-                legend(Palette.none, tr("None marked"))
+            // seven numbers must fit in a row: they grow with the text only up to a point
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) {
+                    legend(Palette.taken, tr("All taken"))
+                    legend(Palette.some, tr("Some"))
+                    legend(Palette.none, tr("None marked"))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    legend(Palette.taken, tr("All taken"))
+                    legend(Palette.some, tr("Some"))
+                    legend(Palette.none, tr("None marked"))
+                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -118,8 +136,7 @@ struct HistoryView: View {
     private func detail(_ m: Medicine, _ c: Change) -> String {
         var parts = [Day.pretty(c.date, style: "d MMM yyyy")]
         if let d = c.detail, c.kind != "stopped" {
-            parts.append(Units.amount(d.amount, d.unit))
-            parts.append(Describe.schedule(d.schedule.cleaned))
+            parts.append(Describe.line(d.amount, d.unit, d.schedule.cleaned))
         }
         return parts.joined(separator: " · ")
     }

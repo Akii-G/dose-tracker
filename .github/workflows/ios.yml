@@ -29,6 +29,11 @@ jobs:
           swiftc -O -o crypto-check ios/Dose/SyncCrypto.swift ios/CryptoCheck/main.swift
           ./crypto-check
 
+      - name: Check reading the box (AIC barcodes) matches the PC
+        run: |
+          swiftc -O -o aic-check ios/Dose/MedicineList.swift ios/AicCheck/main.swift
+          ./aic-check
+
       - name: Refresh the medicine list from AIFA
         continue-on-error: true      # if AIFA is down, build with the list in the repository
         run: python3 tools/build_medicines.py

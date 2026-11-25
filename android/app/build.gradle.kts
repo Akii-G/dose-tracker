@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.akiig.dose"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.1.0"
+        versionCode = 2
+        versionName = "1.2.0"
     }
 
     signingConfigs {
@@ -78,6 +78,11 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
+    // scanning the barcode on the box: the camera, and ZXing to read Code 39 / Code 32 and DataMatrix
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.robolectric:robolectric:4.14.1")

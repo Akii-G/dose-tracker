@@ -106,7 +106,7 @@ object Reminders {
             title = "Dose"; body = tr("Time for your %@ dose", time)
         } else {
             title = if (again) tr("%@ · still to take", time) else tr("%@ · time for your medicine", time)
-            body = meds.joinToString(", ") { it.title } + if (meds.size == 1) " · " + Units.amount(meds[0].amount, meds[0].unit) else ""
+            body = meds.joinToString(", ") { it.title } + if (meds.size == 1) " · " + Units.amount(meds[0].amountAt(time), meds[0].unit) else ""
         }
         val id = notificationId(day, time)
         fun action(action: String, code: Int) = PendingIntent.getBroadcast(context, id * 4 + code,

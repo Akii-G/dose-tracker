@@ -119,7 +119,7 @@ class AppStore(private val file: File?) {
         val m = medicines[medId] ?: return
         val key = slotId(medId, day, time)
         val now = Stamp.now()
-        doses = doses + (key to DoseRecord(key, medId, day, time, status, at ?: Day.now(), m.amount, now, now))
+        doses = doses + (key to DoseRecord(key, medId, day, time, status, at ?: Day.now(), m.amountAt(time), now, now))
         deleted = deleted - key
         if (notify) changed() else save()
     }

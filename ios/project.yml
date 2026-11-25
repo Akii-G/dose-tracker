@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   Dose:
     type: application
@@ -38,6 +38,7 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         NSLocalNetworkUsageDescription: Dose syncs your medicines with Dose on your PC over your home Wi-Fi.
+        NSCameraUsageDescription: Dose reads the barcode on a medicine's box to fill in its name. Nothing is recorded or sent.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
 schemes:

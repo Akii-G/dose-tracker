@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MedicinesView: View {
+    @Environment(\.dynamicTypeSize) private var textSize
     @Environment(AppStore.self) private var store
     @State private var adding = false
     @State private var editing: Medicine?
@@ -37,16 +38,18 @@ struct MedicinesView: View {
     }
 
     private func row(_ med: Medicine) -> some View {
-        Button { editing = med } label: {
-            HStack {
+        // with the largest text sizes the stock goes under the name instead of beside it
+        let layout = textSize >= .xxxLarge ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
+        return Button { editing = med } label: {
+            layout {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(med.title).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                    Text(Units.amount(med.amount, med.unit) + " · " + Describe.schedule(med.schedule))
+                    Text(Describe.line(med.amount, med.unit, med.schedule))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
+                if textSize < .xxxLarge { Spacer() }
                 if let left = store.remaining(med) {
-                    VStack(alignment: .trailing, spacing: 2) {
+                    VStack(alignment: textSize >= .xxxLarge ? .leading : .trailing, spacing: 2) {
                         Text(tr("%@ left", String(format: "%g", left)))
                         if let days = store.daysLeft(med) {
                             Text(trn("%@ day", "%@ days", days))

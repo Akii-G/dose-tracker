@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="read_doses_label">leggere i tuoi farmaci di Dose</string>
+    <string name="read_doses_description">Leggere i farmaci e le dosi che tieni in Dose (per esempio, Sottovoce li mostra nel resoconto per il medico).</string>
+</resources>

@@ -56,6 +56,16 @@ def step(i=[0]):
             snap(ed, "search"); ed.close(); m.SyncWindow(win).present()
         elif k == 6:
             sw = [w for w in Gtk.Window.list_toplevels() if isinstance(w, m.SyncWindow)][0]; snap(sw, "sync")
+            sw.close(); win.edit("a")
+        elif k == 7:   # a different amount at each time
+            ed = [w for w in Gtk.Window.list_toplevels() if isinstance(w, m.Editor)][0]
+            ed.add_time("20:00"); ed.per_time.set_active(True); ed.time_amounts[-1].set_value(0.5)
+        elif k == 8:
+            ed = [w for w in Gtk.Window.list_toplevels() if isinstance(w, m.Editor)][0]; snap(ed, "per-time")
+            assert ed.collect()["schedule"]["amounts"] == {"08:00": 1.5, "20:00": 0.5}, ed.collect()["schedule"]
+            ed.close(); m.ReportWindow(win).present()
+        elif k == 9:
+            rw = [w for w in Gtk.Window.list_toplevels() if isinstance(w, m.ReportWindow)][0]; snap(rw, "report")
             app.quit(); return False
     except Exception as e:
         import traceback; traceback.print_exc(); err.append(e); app.quit(); return False

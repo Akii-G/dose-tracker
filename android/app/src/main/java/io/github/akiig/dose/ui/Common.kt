@@ -56,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -262,22 +263,23 @@ fun Segmented(options: List<Pair<String, String>>, selected: String, onSelect: (
 
 /** A full-screen editor like the iPhone's sheets: Cancel on the left, Save on the right. */
 @Composable
-fun EditorDialog(title: String, canSave: Boolean, onCancel: () -> Unit, onSave: () -> Unit,
+fun EditorDialog(title: String, canSave: Boolean, onCancel: () -> Unit, onSave: () -> Unit, showSave: Boolean = true,
                  content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false,
         decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp)) {
-                    TextButton(onClick = onCancel, Modifier.align(Alignment.CenterStart)) {
-                        Text(tr("Cancel"), style = MaterialTheme.typography.bodyLarge)
-                    }
-                    Text(title, Modifier.align(Alignment.Center).padding(horizontal = 96.dp),
+                // Cancel, title, Save in one row; the title gives way (with large text it goes under them)
+                val large = LocalDensity.current.fontScale >= 1.3f
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onCancel) { Text(if (showSave) tr("Cancel") else tr("Close"), style = MaterialTheme.typography.bodyLarge, maxLines = 1) }
+                    Text(if (large) "" else title, Modifier.weight(1f), textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = onSave, enabled = canSave, modifier = Modifier.align(Alignment.CenterEnd)) {
-                        Text(tr("Save"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                    }
+                    if (showSave) TextButton(onClick = onSave, enabled = canSave) {
+                        Text(tr("Save"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    } else Spacer(Modifier.width(72.dp))
                 }
+                if (large) Text(title, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.headlineSmall)
                 Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
                     content()

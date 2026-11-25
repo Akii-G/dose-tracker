@@ -1,1 +1,2 @@
 "NSLocalNetworkUsageDescription" = "Dose sincronizza i tuoi farmaci con Dose sul PC tramite il Wi-Fi di casa.";
+"NSCameraUsageDescription" = "Dose legge il codice a barre sulla scatola di un farmaco per compilarne il nome. Niente viene registrato o inviato.";

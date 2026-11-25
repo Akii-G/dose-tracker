@@ -126,7 +126,7 @@ private fun DoseRow(day: String, slot: AppStore.Slot, minute: String) {
     var picking by remember { mutableStateOf(false) }
     val dose = slot.dose
     val detail = buildList {
-        add(Units.amount(slot.med.amount, slot.med.unit))
+        add(Units.amount(slot.med.amountAt(slot.time), slot.med.unit))
         if (slot.med.note.isNotEmpty()) add(slot.med.note)
         if (dose == null && (day < Day.today || (day == Day.today && minute > slot.time))) add(tr("Not taken"))
     }.joinToString(" · ")
@@ -136,19 +136,18 @@ private fun DoseRow(day: String, slot: AppStore.Slot, minute: String) {
         store.mark(slot.med.id, day, slot.time, status, at)
     }
     Column {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .combinedClickable(onClick = { if (dose != null) menu = true }, onLongClick = { menu = true })
-            .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TwoLines(slot.med.title, detail, Modifier.weight(1f))
-            if (dose != null) {
-                val taken = dose.status == "taken"
-                Text(if (taken) tr("Taken at %@", dose.at) else tr("Skipped"), style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (taken) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (taken) Palette.taken else MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                PillButton(tr("Skip"), prominent = false) { mark("skipped") }
-                PillButton(tr("Taken"), prominent = true) { mark("taken") }
+        val status: @Composable () -> Unit = {
+            val taken = dose?.status == "taken"
+            Text(if (taken) tr("Taken at %@", dose!!.at) else tr("Skipped"), style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (taken) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (taken) Palette.taken else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        AdaptiveRow(Modifier.combinedClickable(onClick = { if (dose != null) menu = true }, onLongClick = { menu = true }),
+            main = { TwoLines(slot.med.title, detail, it) }) {
+            if (dose != null) status()
+            else {
+                PillButton(tr("Skip"), prominent = false, wide()) { mark("skipped") }
+                PillButton(tr("Taken"), prominent = true, wide()) { mark("taken") }
             }
         }
         DropdownMenu(menu, { menu = false }) {
@@ -174,12 +173,9 @@ private fun NeededRow(day: String, med: Medicine, doses: List<DoseRecord>) {
     val detail = if (doses.isEmpty()) Units.amount(med.amount, med.unit) + " · " + tr("when needed")
                  else doses.joinToString(", ") { "${it.at} (${Units.amount(it.amount, med.unit)})" }
     Column {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .combinedClickable(onClick = {}, onLongClick = { if (doses.isNotEmpty()) menu = true })
-            .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TwoLines(med.title, detail, Modifier.weight(1f))
-            PillButton(if (day == Day.today) tr("Take now") else tr("Add"), prominent = false) {
+        AdaptiveRow(Modifier.combinedClickable(onClick = {}, onLongClick = { if (doses.isNotEmpty()) menu = true }),
+            main = { TwoLines(med.title, detail, it) }) {
+            PillButton(if (day == Day.today) tr("Take now") else tr("Add"), prominent = false, wide()) {
                 store.takeNow(med.id, day, if (day == Day.today) null else "12:00")
             }
         }

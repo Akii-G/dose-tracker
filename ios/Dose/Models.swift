@@ -11,8 +11,19 @@ struct Schedule: Codable, Hashable {
     var every: Int = 2                    // for "every": every N days from start
     var start: String = Day.today         // "YYYY-MM-DD"
     var end: String = ""                  // "" or the last day of a course
+    var amounts: [String: Double] = [:]   // a different amount at some times ("20:00": 0.5)
 
     init() {}
+
+    enum CodingKeys: String, CodingKey { case kind, times, weekdays, every, start, end, amounts }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind); try c.encode(times, forKey: .times)
+        try c.encode(weekdays, forKey: .weekdays); try c.encode(every, forKey: .every)
+        try c.encode(start, forKey: .start); try c.encode(end, forKey: .end)
+        if !amounts.isEmpty { try c.encode(amounts, forKey: .amounts) }   // left out when not used
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -22,6 +33,7 @@ struct Schedule: Codable, Hashable {
         every = (try? c.decode(Int.self, forKey: .every)) ?? 2
         start = (try? c.decode(String.self, forKey: .start)) ?? Day.today
         end = (try? c.decode(String.self, forKey: .end)) ?? ""
+        amounts = (try? c.decode([String: Double].self, forKey: .amounts)) ?? [:]
     }
 
     /// Checked like the PC's clean_schedule.
@@ -36,6 +48,8 @@ struct Schedule: Codable, Hashable {
         s.every = min(max(s.every, 1), 365)
         if Day.date(s.start) == nil { s.start = Day.today }
         if !s.end.isEmpty && Day.date(s.end) == nil { s.end = "" }
+        s.amounts = s.amounts.filter { s.times.contains($0.key) && $0.value > 0 && $0.value <= 1000 }
+            .mapValues { ($0 * 100).rounded() / 100 }
         return s
     }
 }
@@ -116,8 +130,11 @@ struct Medicine: Codable, Identifiable, Hashable {
     var asNeeded: Bool { schedule.kind == "needed" }
 
     /// Average amount a day, for how long the stock lasts.
+    /// How much is taken at `time`: its own amount if it has one, else the medicine's.
+    func amount(at time: String) -> Double { schedule.amounts[time] ?? amount }
+
     var perDay: Double {
-        let n = Double(schedule.times.count) * amount
+        let n = schedule.times.reduce(0) { $0 + amount(at: $1) }
         switch schedule.kind {
         case "weekdays": return n * Double(schedule.weekdays.count) / 7
         case "every": return n / Double(max(schedule.every, 1))
@@ -299,13 +316,21 @@ enum Day {
 
 enum Describe {
     /// "Every day at 08:00 and 20:00", "Mon, Thu at 09:00", "Every 3 days at 08:00", "When needed".
-    static func schedule(_ s: Schedule) -> String {
+    /// "1 pill · Every day at 08:00", or "Every day at 08:00 (1 pill) and 20:00 (½ pill)".
+    static func line(_ amount: Double, _ unit: String, _ s: Schedule) -> String {
+        if !s.amounts.isEmpty && s.kind != "needed" { return schedule(s, amount: amount, unit: unit) }
+        return Units.amount(amount, unit) + " · " + schedule(s)
+    }
+
+    static func schedule(_ s: Schedule, amount: Double = 1, unit: String? = nil) -> String {
         var out: String
         if s.kind == "needed" {
             out = tr("When needed")
         } else {
-            let at = s.times.count == 1 ? s.times[0]
-                : tr("%@ and %@", s.times.dropLast().joined(separator: ", "), s.times.last ?? "")
+            let shown = unit != nil && !s.amounts.isEmpty
+                ? s.times.map { "\($0) (\(Units.amount(s.amounts[$0] ?? amount, unit!)))" } : s.times
+            let at = shown.count == 1 ? shown[0]
+                : tr("%@ and %@", shown.dropLast().joined(separator: ", "), shown.last ?? "")
             if s.kind == "weekdays" && s.weekdays.count < 7 {
                 out = tr("%@ at %@", s.weekdays.map { Day.weekdayShort[$0 - 1] }.joined(separator: ", "), at)
             } else if s.kind == "every" && s.every > 1 {

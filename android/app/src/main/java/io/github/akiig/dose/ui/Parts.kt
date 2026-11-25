@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +44,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import io.github.akiig.dose.tr
+
+/** True with large text (Android's font size at 130% or more): rows stack instead of squeezing. */
+@Composable
+fun isLarge(): Boolean = LocalDensity.current.fontScale >= 1.3f
+
+/** A size that grows with the text, but only up to `cap` times (for fixed-width things like the calendar). */
+@Composable
+fun capped(size: TextUnit, cap: Float = 1.35f): TextUnit {
+    val scale = LocalDensity.current.fontScale
+    return if (scale <= cap) size else (size.value * cap / scale).sp
+}
 
 /** The iPhone's small centred title, with buttons on the right (Today, History). */
 @Composable
@@ -76,21 +92,45 @@ fun HeaderSection(header: @Composable () -> Unit, content: @Composable ColumnSco
 
 /** iOS's .borderedProminent (filled violet) and .bordered (light violet) buttons. */
 @Composable
-fun PillButton(label: String, prominent: Boolean, onClick: () -> Unit) {
+fun PillButton(label: String, prominent: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val bg = if (prominent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     val ink = if (prominent) Color.White else MaterialTheme.colorScheme.primary
-    Box(Modifier.heightIn(min = 34.dp).clip(RoundedCornerShape(50)).background(bg).clickable(onClick = onClick)
+    Box(modifier.heightIn(min = 34.dp).clip(RoundedCornerShape(50)).background(bg).clickable(onClick = onClick)
         .semantics { role = Role.Button }.padding(horizontal = 14.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
         Text(label, color = ink, style = MaterialTheme.typography.bodyMedium, fontWeight = if (prominent) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
     }
 }
+
+/**
+ * A list row: the main part and the trailing things (buttons, a status) side by side; with large
+ * text the trailing things go on their own line under it, full width, so nothing is squeezed.
+ */
+@Composable
+fun AdaptiveRow(modifier: Modifier = Modifier, main: @Composable (Modifier) -> Unit, trailing: @Composable RowScope.() -> Unit) {
+    if (isLarge()) {
+        Column(modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            main(Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, content = trailing)
+        }
+    } else {
+        Row(modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            main(Modifier.weight(1f))
+            trailing()
+        }
+    }
+}
+
+/** Buttons under a row share its width with large text. */
+@Composable
+fun RowScope.wide(): Modifier = if (isLarge()) Modifier.weight(1f) else Modifier
 
 /** iOS's stepper: a label, then a grey "− | +" pill. */
 @Composable
 fun StepperRow(label: String, canMinus: Boolean = true, canPlus: Boolean = true, onMinus: () -> Unit, onPlus: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge)
-        Row(Modifier.clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest).height(32.dp),
+        Row(Modifier.clip(RoundedCornerShape(9.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest).height(stepH()),
             verticalAlignment = Alignment.CenterVertically) {
             StepHalf(Icons.Filled.Remove, tr("Less"), canMinus, onMinus)
             VerticalDivider(Modifier.height(18.dp), color = MaterialTheme.colorScheme.outline)
@@ -100,9 +140,13 @@ fun StepperRow(label: String, canMinus: Boolean = true, canPlus: Boolean = true,
 }
 
 @Composable
+private fun stepH() = 32.dp * minOf(LocalDensity.current.fontScale, 1.6f).coerceAtLeast(1f)
+
+@Composable
 private fun StepHalf(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(Modifier.width(47.dp).height(32.dp).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, description, Modifier.size(20.dp),
+    val k = minOf(LocalDensity.current.fontScale, 1.6f).coerceAtLeast(1f)
+    Box(Modifier.width(47.dp * k).height(stepH()).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, description, Modifier.size(20.dp * k),
             tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
     }
 }
@@ -136,3 +180,13 @@ fun Empty(icon: ImageVector, title: String, text: String, button: String, onClic
 
 @Composable
 fun Dot(color: Color) = Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+
+/** A choice in a list, with a check mark when chosen (like iOS's inline Picker). */
+@Composable
+fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onClick).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        if (checked) Icon(androidx.compose.material.icons.Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary)
+    }
+}

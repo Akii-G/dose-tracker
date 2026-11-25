@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import io.github.akiig.dose.LocalApp
 import io.github.akiig.dose.Medicine
 import io.github.akiig.dose.tr
@@ -65,6 +66,7 @@ fun DoseApp(startTab: Int = 0) {
     val app = LocalApp.current
     var tab by rememberSaveable { mutableIntStateOf(startTab) }
     var editing by remember { mutableStateOf<EditTarget?>(null) }
+    var reporting by remember { mutableStateOf(false) }
 
     // Android 13+: ask for notifications the first time a medicine is added
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { app.replan() }
@@ -88,11 +90,12 @@ fun DoseApp(startTab: Int = 0) {
             when (tab) {
                 0 -> TodayScreen(onEdit = edit)
                 1 -> MedicinesScreen(onEdit = edit)
-                2 -> HistoryScreen()
-                else -> SettingsScreen()
+                2 -> HistoryScreen(onReport = { reporting = true })
+                else -> SettingsScreen(onReport = { reporting = true })
             }
             TabBar(tabs, tab, Modifier.align(Alignment.BottomCenter)) { tab = it }
             editing?.let { EditorScreen(it.original) { editing = null } }
+            if (reporting) ReportScreen { reporting = false }
         }
     }
 }
@@ -116,8 +119,8 @@ private fun TabBar(tabs: List<Tab>, selected: Int, modifier: Modifier, onSelect:
                     .clickable { onSelect(index) }
                     .semantics { this.selected = on; role = Role.Tab }
                     .padding(vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(t.icon, null, Modifier.size(24.dp), tint = ink)
-                    FittingText(t.title, ink, if (on) FontWeight.SemiBold else FontWeight.Medium)
+                    Icon(t.icon, null, Modifier.size(24.dp * minOf(LocalDensity.current.fontScale, 1.3f).coerceAtLeast(1f)), tint = ink)
+                    FittingText(t.title, ink, if (on) FontWeight.SemiBold else FontWeight.Medium, capped(11.sp, 1.3f))
                 }
             }
         }

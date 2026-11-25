@@ -109,3 +109,38 @@ if m.crypto_available():
     assert AESGCM(k).encrypt(bytes(12), b'{"a":1}', m.sync_aad("/api/e/ping", False)).hex() == \
         "8795b68f38be54580422caa7482cff3c237c0969349bed"
     print("crypto vectors ok")
+
+# a different amount at each time: kept only for its times, used for doses, stock and the text
+s = m.Store(path="")
+med = s.put_medicine({"id": "pt", "name": "Per time", "amount": 1, "unit": "pill",
+                      "schedule": {"kind": "daily", "times": ["08:00", "20:00"], "start": "2026-01-01",
+                                   "amounts": {"20:00": 0.5, "13:00": 2, "08:00": "x"}}})
+med = s.meds["pt"]
+assert med["schedule"]["amounts"] == {"20:00": 0.5}, med["schedule"]
+assert m.amount_at(med, "08:00") == 1 and m.amount_at(med, "20:00") == 0.5
+assert m.per_day(med) == 1.5
+s.mark("pt", dt.date(2026, 2, 1), "20:00", "taken")
+assert s.doses["pt@2026-02-01@20:00"]["amount"] == 0.5
+assert "20:00 (½" in m.schedule_text(med), m.schedule_text(med)
+assert "amounts" not in m.clean_schedule({"kind": "daily", "times": ["08:00"]})
+print("per-time amounts ok")
+
+# the AIC number from the box: typed, Code 39, Code 32 and GS1 DataMatrix
+assert m.aic_from_text("A012745093") == "012745093" and m.aic_from_text(" 012745093 ") == "012745093"
+assert m.aic_from_text("12345") is None and m.aic_from_text("tachipirina") is None
+assert m.aic_from_barcode("A012745093") == "012745093"
+assert m.aic_from_barcode("0D4YD5") == "012745093"
+assert m.aic_from_barcode("0CSSBD") == "012345676"                     # Code 32, published example
+gs = "\x1d"
+dm = "]d2" + "0108012345678906" + "21ABC123" + gs + "17271231" + "10L01" + gs + "716012745093"
+assert m.aic_from_barcode(dm) == "012745093", m.aic_from_barcode(dm)
+assert m.aic_from_barcode("010801234567890617271231716012745093") == "012745093"
+assert m.aic_from_barcode("hello") is None
+m._MEDICINES = [("Tachipirina", "500 mg", "Compressa", "Paracetamolo", "tachipirina", "paracetamolo", "012745:093,105"),
+                ("Tachipirina", "1000 mg", "Compressa", "Paracetamolo", "tachipirina", "paracetamolo", "012745:220")]
+assert m.find_aic("012745220")[1] == "1000 mg"
+assert m.find_aic("012745999")[1] == "500 mg"                # another pack of the same medicine
+assert m.find_aic("999999999") is None
+assert [r[1] for r in m.search_medicines("A012745105")] == ["500 mg"]
+m._MEDICINES = None
+print("aic ok")

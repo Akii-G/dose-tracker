@@ -45,6 +45,19 @@ assert args == ["dose:taken?day=%s&time=08:00" % day.isoformat(), "dose:later?da
 assert doc.documentElement.getAttribute("scenario") == "reminder"
 assert not xml.dom.minidom.parseString(m.toast_xml("t", "b")).getElementsByTagName("action")
 
+# the report and the backup, the same on every system
+out = tempfile.mkdtemp()
+m.report_pdf(m.Store(), day - dt.timedelta(days=6), day, os.path.join(out, "r.pdf"))
+with open(os.path.join(out, "r.pdf"), "rb") as f:
+    assert f.read(5) == b"%PDF-"
+m.report_csv(m.Store(), day - dt.timedelta(days=6), day, os.path.join(out, "r.csv"))
+m.write_backup(m.Store(), os.path.join(out, "b.json"))
+with open(os.path.join(out, "b.json"), encoding="utf-8") as f:
+    back = json.load(f)
+assert m.is_backup(back) and back["backup"]["app"] == "Dose"
+fresh = m.Store(path="")
+assert fresh.absorb(back) >= 2 and len(fresh.meds) == 2
+
 if m.IS_WINDOWS:
     del os.environ["DOSE_DATA_DIR"]
     assert m.data_dir().lower().replace("\\", "/").endswith("appdata/local/dose"), m.data_dir()

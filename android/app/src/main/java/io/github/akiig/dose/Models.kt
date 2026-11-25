@@ -22,6 +22,7 @@ data class Schedule(
     val every: Int = 2,                         // for "every": every N days from start
     val start: String = Day.today,
     val end: String = "",                       // "" or the last day of a course
+    val amounts: Map<String, Double> = emptyMap(), // a different amount at some times ("20:00" to 0.5)
 ) {
     /** Checked like the PC's clean_schedule. */
     fun cleaned(): Schedule {
@@ -31,20 +32,23 @@ data class Schedule(
         if (k == "needed") t = emptyList()
         val w = weekdays.filter { it in 1..7 }.distinct().sorted().ifEmpty { (1..7).toList() }
         return Schedule(k, t, w, every.coerceIn(1, 365), if (Day.date(start) != null) start else Day.today,
-            if (end.isNotEmpty() && Day.date(end) == null) "" else end)
+            if (end.isNotEmpty() && Day.date(end) == null) "" else end,
+            amounts.filter { (time, a) -> time in t && a > 0 && a <= 1000 }.mapValues { Math.round(it.value * 100) / 100.0 })
     }
 
     fun json(): JSONObject = JSONObject().put("kind", kind).put("times", JSONArray(times)).put("weekdays", JSONArray(weekdays))
         .put("every", every).put("start", start).put("end", end)
+        .apply { if (amounts.isNotEmpty()) put("amounts", JSONObject().apply { amounts.toSortedMap().forEach { (t, a) -> put(t, a) } }) }
 
     companion object {
         fun from(o: JSONObject?): Schedule {
             o ?: return Schedule()
             fun ints(a: JSONArray?) = a?.let { (0 until it.length()).map { i -> it.optInt(i) } }
             fun strs(a: JSONArray?) = a?.let { (0 until it.length()).map { i -> it.optString(i) } }
+            val own = o.optJSONObject("amounts")?.let { a -> a.keys().asSequence().associateWith { a.optDouble(it, 0.0) } } ?: emptyMap()
             return Schedule(o.str("kind", "daily"), strs(o.optJSONArray("times")) ?: emptyList(),
                 ints(o.optJSONArray("weekdays")) ?: (1..7).toList(), o.optInt("every", 2),
-                o.str("start", Day.today), o.str("end")).cleaned()
+                o.str("start", Day.today), o.str("end"), own).cleaned()
         }
     }
 }
@@ -91,8 +95,11 @@ data class Medicine(
     val asNeeded get() = schedule.kind == "needed"
 
     /** Average amount a day, for how long the stock lasts. */
+    /** How much is taken at `time`: its own amount if it has one, else the medicine's. */
+    fun amountAt(time: String): Double = schedule.amounts[time] ?: amount
+
     val perDay: Double get() {
-        val n = schedule.times.size * amount
+        val n = schedule.times.sumOf { amountAt(it) }
         return when (schedule.kind) {
             "weekdays" -> n * schedule.weekdays.size / 7
             "every" -> n / schedule.every.coerceAtLeast(1)
@@ -229,9 +236,14 @@ object Describe {
     fun days(days: List<Int>): String = days.joinToString(", ") { Day.weekdayShort[it - 1] }
 
     /** "Every day at 08:00 and 20:00", "Mon, Thu at 09:00", "Every 3 days at 08:00", "When needed". */
-    fun schedule(s: Schedule): String {
+    /** "1 pill · Every day at 08:00", or "Every day at 08:00 (1 pill) and 20:00 (½ pill)". */
+    fun line(amount: Double, unit: String, s: Schedule): String =
+        if (s.amounts.isNotEmpty() && s.kind != "needed") schedule(s, amount, unit) else Units.amount(amount, unit) + " · " + schedule(s)
+
+    fun schedule(s: Schedule, amount: Double = 1.0, unit: String? = null): String {
         var out = if (s.kind == "needed") tr("When needed") else {
-            val at = if (s.times.size == 1) s.times[0] else tr("%@ and %@", s.times.dropLast(1).joinToString(", "), s.times.last())
+            val times = if (unit != null && s.amounts.isNotEmpty()) s.times.map { "$it (${Units.amount(s.amounts[it] ?: amount, unit)})" } else s.times
+            val at = if (times.size == 1) times[0] else tr("%@ and %@", times.dropLast(1).joinToString(", "), times.last())
             when {
                 s.kind == "weekdays" && s.weekdays.size < 7 -> tr("%@ at %@", s.weekdays.joinToString(", ") { Day.weekdayShort[it - 1] }, at)
                 s.kind == "every" && s.every > 1 -> tr("Every %@ days at %@", s.every, at)

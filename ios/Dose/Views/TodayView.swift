@@ -104,22 +104,25 @@ struct DoseRow: View {
     var minute: String = ""
     @State private var picking = false
     @State private var at = Date()
+    @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
-        HStack(spacing: 10) {
+        // with the largest text sizes the buttons go under the name, full width, instead of squeezing it
+        let big = textSize >= .xxxLarge   // about 135%, like Android's 130%
+        AdaptiveRow(big: big) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot.med.title).font(.body.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 4)
+        } trailing: {
             if let dose = slot.dose {
                 Text(dose.status == "taken" ? tr("Taken at %@", dose.at) : tr("Skipped"))
                     .font(.subheadline.weight(dose.status == "taken" ? .semibold : .regular))
                     .foregroundStyle(dose.status == "taken" ? Palette.taken : .secondary)
             } else {
-                Button("Skip") { mark("skipped") }
+                Button { mark("skipped") } label: { Text("Skip").frame(maxWidth: big ? .infinity : nil) }
                     .buttonStyle(.bordered)
-                Button("Taken") { mark("taken") }
+                Button { mark("taken") } label: { Text("Taken").frame(maxWidth: big ? .infinity : nil) }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -161,7 +164,7 @@ struct DoseRow: View {
     }
 
     private var detail: String {
-        var parts = [Units.amount(slot.med.amount, slot.med.unit)]
+        var parts = [Units.amount(slot.med.amount(at: slot.time), slot.med.unit)]
         if !slot.med.note.isEmpty { parts.append(slot.med.note) }
         if slot.dose == nil && (day < Day.today || (day == Day.today && minute > slot.time)) { parts.append(tr("Not taken")) }
         return parts.joined(separator: " · ")
@@ -179,16 +182,20 @@ struct NeededRow: View {
     let day: String
     let med: Medicine
     let doses: [DoseRecord]
+    @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
-        HStack(spacing: 10) {
+        let big = textSize >= .xxxLarge   // about 135%, like Android's 130%
+        AdaptiveRow(big: big) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(med.title).font(.body.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 4)
-            Button(day == Day.today ? tr("Take now") : tr("Add")) {
+        } trailing: {
+            Button {
                 store.takeNow(med.id, day: day, at: day == Day.today ? nil : "12:00")
+            } label: {
+                Text(day == Day.today ? tr("Take now") : tr("Add")).frame(maxWidth: big ? .infinity : nil)
             }
             .buttonStyle(.bordered)
         }
@@ -202,5 +209,29 @@ struct NeededRow: View {
     private var detail: String {
         if doses.isEmpty { return Units.amount(med.amount, med.unit) + " · " + tr("when needed") }
         return doses.map { "\($0.at) (\(Units.amount($0.amount, med.unit)))" }.joined(separator: ", ")
+    }
+}
+
+/// A list row: the main part with buttons or a status on the right; with the largest text sizes
+/// the trailing part goes on its own line under it, so nothing is squeezed.
+struct AdaptiveRow<Main: View, Trailing: View>: View {
+    let big: Bool
+    @ViewBuilder let main: () -> Main
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        if big {
+            VStack(alignment: .leading, spacing: 10) {
+                main()
+                HStack(spacing: 10) { trailing() }
+            }
+            .padding(.vertical, 4)
+        } else {
+            HStack(spacing: 10) {
+                main()
+                Spacer(minLength: 4)
+                trailing()
+            }
+        }
     }
 }

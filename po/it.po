@@ -518,3 +518,214 @@ msgstr "Tocca i giorni in cui lo prendi."
 
 msgid "Pick at least one day."
 msgstr "Scegli almeno un giorno."
+
+msgid "Taken when needed"
+msgstr "Presa al bisogno"
+
+msgid "Date"
+msgstr "Data"
+
+msgid "Time"
+msgstr "Ora"
+
+msgid "Status"
+msgstr "Stato"
+
+msgid "Medicines report"
+msgstr "Resoconto dei farmaci"
+
+msgid "Dose · %s – %s · page %s"
+msgstr "Dose · %s – %s · pagina %s"
+
+msgid "Dose · %s · page %s"
+msgstr "Dose · %s · pagina %s"
+
+msgid "Made with Dose on %s. Doses not yet due are not counted."
+msgstr "Fatto con Dose il %s. Le dosi non ancora previste non sono contate."
+
+msgid "% taken"
+msgstr "% prese"
+
+msgid "Scheduled doses"
+msgstr "Dosi previste"
+
+msgid "No scheduled doses in this period."
+msgstr "Nessuna dose prevista in questo periodo."
+
+msgid "stopped"
+msgstr "sospeso"
+
+msgid "%s time"
+msgstr "%s volta"
+
+msgid "%s times"
+msgstr "%s volte"
+
+msgid "Day by day"
+msgstr "Giorno per giorno"
+
+msgid "When needed, at %s"
+msgstr "Al bisogno, alle %s"
+
+msgid "Search by name, active ingredient or AIC number"
+msgstr "Cerca per nome, principio attivo o numero AIC"
+
+msgid "A different amount at each time"
+msgstr "Una quantità diversa a ogni orario"
+
+msgid "For example 1 in the morning and ½ in the evening"
+msgstr "Per esempio 1 la mattina e ½ la sera"
+
+msgid "Amount at this time"
+msgstr "Quantità a questo orario"
+
+msgid "At %s: %s"
+msgstr "Alle %s: %s"
+
+msgid "Last 7 days"
+msgstr "Ultimi 7 giorni"
+
+msgid "Last 2 weeks"
+msgstr "Ultime 2 settimane"
+
+msgid "Last 30 days"
+msgstr "Ultimi 30 giorni"
+
+msgid "Last 3 months"
+msgstr "Ultimi 3 mesi"
+
+msgid "Choose the dates"
+msgstr "Scegli le date"
+
+msgid "Report for your doctor"
+msgstr "Resoconto per il medico"
+
+msgid "Report for your doctor…"
+msgstr "Resoconto per il medico…"
+
+msgid "For each medicine: the doses taken, skipped and not taken, those taken when needed and the changes; then the doses day by day."
+msgstr "Per ogni farmaco: le dosi prese, saltate e non prese, quelle prese al bisogno e i cambiamenti; poi le dosi giorno per giorno."
+
+msgid "Period"
+msgstr "Periodo"
+
+msgid "Save as CSV"
+msgstr "Salva come CSV"
+
+msgid "Save as PDF"
+msgstr "Salva come PDF"
+
+msgid "Dose-report"
+msgstr "Dose-resoconto"
+
+msgid "Could not save: %s"
+msgstr "Impossibile salvare: %s"
+
+msgid "Saved: %s"
+msgstr "Salvato: %s"
+
+msgid "Save the report"
+msgstr "Salva il resoconto"
+
+msgid "Back up…"
+msgstr "Fai un backup…"
+
+msgid "Restore from a backup…"
+msgstr "Ripristina da un backup…"
+
+msgid "Saved: %s. Keep it somewhere safe, like a USB stick or your cloud."
+msgstr "Salvato: %s. Tienilo in un posto sicuro, come una chiavetta USB o il tuo cloud."
+
+msgid "Back up"
+msgstr "Fai un backup"
+
+msgid "This isn't a Dose backup."
+msgstr "Questo non è un backup di Dose."
+
+msgid "Restored: %s change."
+msgstr "Ripristinato: %s modifica."
+
+msgid "Restored: %s changes."
+msgstr "Ripristinato: %s modifiche."
+
+msgid "What you had here stays; the backup only adds what's missing or newer."
+msgstr "Quello che avevi qui resta; il backup aggiunge solo ciò che manca o è più recente."
+
+msgid "Restore from a backup"
+msgstr "Ripristina da un backup"
+
+msgid "Close"
+msgstr "Chiudi"
+
+msgid "Scan the box"
+msgstr "Scansiona la scatola"
+
+msgid "Found from the box: AIC %s"
+msgstr "Trovato dalla scatola: AIC %s"
+
+msgid "AIC %s isn't in the list. Type the name below."
+msgstr "L'AIC %s non è nell'elenco. Scrivi il nome qui sotto."
+
+msgid "Your Android asks which app gets it: email, Drive, a printer…"
+msgstr "Android ti chiede a quale app mandarlo: email, Drive, una stampante…"
+
+msgid "Your iPhone asks where it goes: Mail, Files, a printer…"
+msgstr "L'iPhone ti chiede dove mandarlo: Mail, File, una stampante…"
+
+msgid "Share as PDF"
+msgstr "Condividi come PDF"
+
+msgid "Share as CSV (spreadsheet)"
+msgstr "Condividi come CSV (foglio di calcolo)"
+
+msgid "Could not make the report: %s"
+msgstr "Impossibile creare il resoconto: %s"
+
+msgid "Dose needs the camera to read the box. You can allow it in Android's Settings → Apps → Dose."
+msgstr "Dose ha bisogno della fotocamera per leggere la scatola. Puoi consentirla in Impostazioni di Android → App → Dose."
+
+msgid "Point the camera at the barcode on the box (the one under \"A0…\", or the square code)."
+msgstr "Inquadra il codice a barre sulla scatola (quello sotto \"A0…\", o il codice quadrato)."
+
+msgid "Allow Dose to use the camera in Settings → Dose, or type the AIC number printed on the box."
+msgstr "Consenti a Dose di usare la fotocamera in Impostazioni → Dose, o scrivi il numero AIC stampato sulla scatola."
+
+msgid "Can't use the camera"
+msgstr "Impossibile usare la fotocamera"
+
+msgid "Backed up. Keep the file somewhere safe, like your cloud or a computer."
+msgstr "Backup fatto. Tieni il file in un posto sicuro, come il tuo cloud o un computer."
+
+msgid "Your data"
+msgstr "I tuoi dati"
+
+msgid "A backup is one file with all your medicines and doses. Restoring it on a new phone brings them back."
+msgstr "Un backup è un file con tutti i tuoi farmaci e le dosi. Ripristinandolo su un nuovo telefono tornano tutti."
+
+msgid "Dose · %s – %s · page %d"
+msgstr "Dose · %s – %s · pagina %d"
+
+msgid "Made with Dose on %s. Doses not yet due are not counted."
+msgstr "Fatto con Dose il %s. Le dosi non ancora previste non sono contate."
+
+msgid "When needed, at %s"
+msgstr "Al bisogno, alle %s"
+
+msgid "Could not save: %s"
+msgstr "Impossibile salvare: %s"
+
+msgid "Saved: %s"
+msgstr "Salvato: %s"
+
+msgid "Saved: %s. Keep it somewhere safe, like a USB stick or your cloud."
+msgstr "Salvato: %s. Tienilo in un posto sicuro, come una chiavetta USB o il tuo cloud."
+
+msgid "%d time"
+msgid_plural "%d times"
+msgstr[0] "%d volta"
+msgstr[1] "%d volte"
+
+msgid "Restored: %d change."
+msgid_plural "Restored: %d changes."
+msgstr[0] "Ripristinato: %d modifica."
+msgstr[1] "Ripristinato: %d modifiche."

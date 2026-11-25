@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Add or change a medicine: search the list, then the dose, the schedule and the stock.
 struct EditorView: View {
+    @Environment(\.dynamicTypeSize) private var textSize
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let original: Medicine?
@@ -17,6 +18,7 @@ struct EditorView: View {
     @State private var kind = "daily"
     @State private var times: [TimeItem] = []
     @State private var weekdays: Set<Int> = [1, 2, 3, 4, 5, 6, 7]
+    @State private var perTime = false
     @State private var every = 2
     @State private var start = Date()
     @State private var hasEnd = false
@@ -26,6 +28,8 @@ struct EditorView: View {
     @State private var refillDays = 7
     @State private var askDelete = false
     @State private var results: [MedicineList.Item] = []
+    @State private var scanning = false
+    @State private var scanNote = ""
 
     init(original: Medicine?) {
         self.original = original
@@ -40,7 +44,8 @@ struct EditorView: View {
         _kind = State(initialValue: m.schedule.kind)
         let day = Day.today
         _times = State(initialValue: (m.schedule.times.isEmpty ? ["08:00"] : m.schedule.times)
-            .compactMap { Day.time($0, on: day) }.map { TimeItem(date: $0) })
+            .compactMap { t in Day.time(t, on: day).map { TimeItem(date: $0, amount: m.schedule.amounts[t] ?? m.amount) } })
+        _perTime = State(initialValue: !m.schedule.amounts.isEmpty)
         // all seven ticked is "every day": start with none, so tapping Friday means only Friday
         _weekdays = State(initialValue: m.schedule.kind == "weekdays" && m.schedule.weekdays.count < 7 ? Set(m.schedule.weekdays) : [])
         _every = State(initialValue: max(m.schedule.every, 2))
@@ -56,10 +61,12 @@ struct EditorView: View {
             Form {
                 if original == nil {
                     Section {
-                        TextField("Search by name or active ingredient", text: $query)
+                        TextField("Search by name, active ingredient or AIC number", text: $query)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                             .onChange(of: query) { _, q in results = MedicineList.search(q) }
+                        Button("Scan the box", systemImage: "barcode.viewfinder") { scanNote = ""; scanning = true }
+                        if !scanNote.isEmpty { Text(scanNote).font(.caption).foregroundStyle(.secondary) }
                         ForEach(results, id: \.self) { item in
                             Button { pick(item) } label: {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -104,7 +111,7 @@ struct EditorView: View {
                                 Button {
                                     if on { weekdays.remove(d) } else { weekdays.insert(d) }
                                 } label: {
-                                    Text(String(Day.weekdayShort[d - 1].prefix(2)))
+                                    Text(String(Day.weekdayShort[d - 1].prefix(textSize.isAccessibilitySize ? 1 : 2)))
                                         .font(.subheadline.weight(on ? .semibold : .regular))
                                         .frame(maxWidth: .infinity, minHeight: 34)
                                         .background(on ? Palette.accent.opacity(0.18) : Color.primary.opacity(0.06), in: Capsule())
@@ -113,6 +120,7 @@ struct EditorView: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                     }
                     if kind == "every" {
                         Stepper(value: $every, in: 2...365) { Text(tr("Every %@ days", String(every))) }
@@ -127,10 +135,19 @@ struct EditorView: View {
                                         .foregroundStyle(.red)
                                 }
                             }
+                            if perTime {
+                                Stepper(value: $item.amount, in: 0.25...1000, step: unit == "drop" || unit == "ml" ? 1 : 0.25) {
+                                    Text(tr("At %@: %@", Day.timeString(item.date), Units.amount(item.amount, unit)))
+                                }
+                            }
                         }
                         Button("Add a time") {
-                            times.append(TimeItem(date: Day.time("20:00", on: Day.today) ?? Date()))
+                            times.append(TimeItem(date: Day.time("20:00", on: Day.today) ?? Date(), amount: amount))
                         }
+                        Toggle("A different amount at each time", isOn: Binding(get: { perTime }, set: { on in
+                            if on { for i in times.indices { times[i].amount = amount } }   // start from "each time"
+                            perTime = on
+                        }))
                     }
                     DatePicker("From", selection: $start, displayedComponents: .date)
                     Toggle("Until a date (a course, like an antibiotic)", isOn: $hasEnd)
@@ -162,6 +179,15 @@ struct EditorView: View {
                         Button("Delete", role: .destructive) { askDelete = true }
                     } footer: {
                         Text("Stopped medicines keep their history. Delete removes the medicine and every dose you marked.")
+                    }
+                }
+            }
+            .sheet(isPresented: $scanning) {
+                ScanView { code in
+                    if let item = Aic.find(MedicineList.items, code) {
+                        pick(item); scanNote = tr("Found from the box: AIC %@", code)
+                    } else {
+                        scanNote = tr("AIC %@ isn't in the list. Type the name below.", code)
                     }
                 }
             }
@@ -209,6 +235,9 @@ struct EditorView: View {
         var s = Schedule()
         s.kind = kind
         s.times = times.map { Day.timeString($0.date) }
+        if perTime && kind != "needed" {
+            s.amounts = Dictionary(times.map { (Day.timeString($0.date), $0.amount) }, uniquingKeysWith: { a, _ in a })
+        }
         s.weekdays = Array(weekdays).sorted()
         s.every = every
         s.start = Day.string(start)
@@ -234,4 +263,5 @@ struct EditorView: View {
 struct TimeItem: Identifiable {
     let id = UUID()
     var date: Date
+    var amount: Double = 1
 }

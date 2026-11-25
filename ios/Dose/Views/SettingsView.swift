@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 
 struct SettingsView: View {
@@ -11,6 +12,10 @@ struct SettingsView: View {
     @AppStorage("discreet") private var discreet = false
     @State private var testing = ""
     @State private var allowed: UNAuthorizationStatus = .notDetermined
+    @State private var reporting = false
+    @State private var exporting = false
+    @State private var importing = false
+    @State private var dataNote = ""
 
     var body: some View {
         NavigationStack {
@@ -55,6 +60,15 @@ struct SettingsView: View {
                     Text("Discreet notifications say only \"Time for your 08:00 dose\", without the medicine's name.")
                 }
                 Section {
+                    Button("Report for your doctor") { reporting = true }
+                    Button("Back up") { exporting = true }
+                    Button("Restore from a backup") { importing = true }
+                } header: {
+                    Text("Your data")
+                } footer: {
+                    Text(dataNote.isEmpty ? tr("A backup is one file with all your medicines and doses. Restoring it on a new phone brings them back.") : dataNote)
+                }
+                Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     Link("Dose on GitHub", destination: URL(string: "https://github.com/Akii-G/dose-tracker")!)
                 } header: {
@@ -64,6 +78,21 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $reporting) { ReportView() }
+            .fileExporter(isPresented: $exporting, document: BackupDocument(data: Backup.data(store)), contentType: .json,
+                          defaultFilename: "Dose-backup-\(Day.today)") { result in
+                if case .success = result { dataNote = tr("Backed up. Keep the file somewhere safe, like your cloud or a computer.") }
+            }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data]) { result in
+                guard case .success(let url) = result else { return }
+                let open = url.startAccessingSecurityScopedResource()
+                defer { if open { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url), let n = Backup.restore(store, data) else {
+                    dataNote = tr("This isn't a Dose backup."); return
+                }
+                dataNote = trn("Restored: %@ change.", "Restored: %@ changes.", n) + " "
+                    + tr("What you had here stays; the backup only adds what's missing or newer.")
+            }
             .onChange(of: followUp) { _, _ in Reminders.plan(store) }
             .onChange(of: discreet) { _, _ in Reminders.plan(store) }
             .task {

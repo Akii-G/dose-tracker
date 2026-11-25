@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import io.github.akiig.dose.Aic
 import io.github.akiig.dose.Day
 import io.github.akiig.dose.Describe
 import io.github.akiig.dose.Kinds
@@ -67,6 +68,9 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
     var kind by remember { mutableStateOf(m.schedule.kind) }
     val times = remember { mutableStateListOf(*m.schedule.times.ifEmpty { listOf("08:00") }.toTypedArray()) }
     // all seven ticked is "every day": start with none, so tapping Friday means only Friday
+    // a different amount at each time: one amount per time, side by side with `times`
+    var perTime by remember { mutableStateOf(m.schedule.amounts.isNotEmpty()) }
+    val timeAmounts = remember { mutableStateListOf(*times.map { m.schedule.amounts[it] ?: m.amount }.toTypedArray()) }
     var weekdays by remember { mutableStateOf(if (m.schedule.kind == "weekdays" && m.schedule.weekdays.size < 7) m.schedule.weekdays.toSet() else emptySet()) }
     var every by remember { mutableStateOf(maxOf(m.schedule.every, 2)) }
     var start by remember { mutableStateOf(m.schedule.start) }
@@ -79,11 +83,18 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
     var pickTime by remember { mutableStateOf<Int?>(null) }
     var pickDay by remember { mutableStateOf<String?>(null) }   // "start" or "end"
     val list = remember { MedicineList.load(context) }
+    var scanning by remember { mutableStateOf(false) }
+    var scanNote by remember { mutableStateOf("") }
+    fun pick(item: MedicineList.Item) {
+        name = item.name; strength = item.strength; form = item.form; ingredient = item.ingredient
+        unit = MedicineList.unitFor(item.form); query = ""
+    }
     val results = remember(query) { MedicineList.search(list, query) }
 
     fun save() {
+        val own = if (perTime && kind != "needed") times.zip(timeAmounts).toMap() else emptyMap()
         val schedule = Schedule(kind, times.toList(), weekdays.sorted(), every, start,
-            if (hasEnd) maxOf(end, start) else "").cleaned()
+            if (hasEnd) maxOf(end, start) else "", own).cleaned()
         val left = original?.let { store.remaining(it) }
         val stock = if (!counted) null
             else if (original?.stock != null && left != null && abs(left - count) < 0.001) original.stock   // unchanged
@@ -98,14 +109,15 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
         onCancel = onClose, onSave = ::save) {
         if (original == null) {
             Section(tr("Medicine"), footer = tr("Not in the list? Just type the name below.")) {
-                FieldRow("", query, { query = it }, placeholder = tr("Search by name or active ingredient"),
+                FieldRow("", query, { query = it }, placeholder = tr("Search by name, active ingredient or AIC number"),
                     keyboard = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+                Line()
+                ActionRow(tr("Scan the box")) { scanNote = ""; scanning = true }
+                if (scanNote.isNotEmpty()) Text(scanNote, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 results.forEach { item ->
                     Line()
-                    Column(Modifier.fillMaxWidth().clickable {
-                        name = item.name; strength = item.strength; form = item.form; ingredient = item.ingredient
-                        unit = MedicineList.unitFor(item.form); query = ""
-                    }.padding(vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().clickable { pick(item) }.padding(vertical = 8.dp)) {
                         Text(if (item.strength.isEmpty()) item.name else "${item.name} ${item.strength}", style = MaterialTheme.typography.bodyLarge)
                         Text(listOf(item.form, item.ingredient).filter { it.isNotEmpty() }.joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -160,15 +172,26 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (times.size > 1) {
                             Icon(Icons.Filled.RemoveCircle, tr("Remove"), Modifier.size(24.dp).clip(RoundedCornerShape(50))
-                                .clickable { times.removeAt(i) }, tint = MaterialTheme.colorScheme.error)
+                                .clickable { times.removeAt(i); timeAmounts.removeAt(i) }, tint = MaterialTheme.colorScheme.error)
                             Box(Modifier.size(10.dp))
                         }
                         Text(tr("Time"), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                         Chip(t) { pickTime = i }
                     }
+                    if (perTime) {
+                        val a = timeAmounts[i]
+                        val step = if (unit == "drop" || unit == "ml") 1.0 else 0.25
+                        StepperRow(tr("At %@: %@", t, Units.amount(a, unit)), canMinus = a > 0.25, canPlus = a < 1000,
+                            onMinus = { timeAmounts[i] = maxOf(0.25, a - step) }, onPlus = { timeAmounts[i] = minOf(1000.0, a + step) })
+                    }
                 }
                 Line()
-                ActionRow(tr("Add a time")) { times.add("20:00") }
+                ActionRow(tr("Add a time")) { times.add("20:00"); timeAmounts.add(amount) }
+                Line()
+                SwitchRow(tr("A different amount at each time"), perTime) { on ->
+                    if (on) for (i in timeAmounts.indices) timeAmounts[i] = amount   // start from "each time"
+                    perTime = on
+                }
             }
             Line()
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -206,6 +229,12 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
         }
     }
 
+    if (scanning) ScanScreen(onClose = { scanning = false }) { code ->
+        scanning = false
+        val item = Aic.find(list, code)
+        if (item != null) { pick(item); scanNote = tr("Found from the box: AIC %@", code) }
+        else scanNote = tr("AIC %@ isn't in the list. Type the name below.", code)
+    }
     pickTime?.let { i ->
         TimePickerDialog(LocalTime.parse(times[i]), onDismiss = { pickTime = null }) { times[i] = it.toString().take(5) }
     }
@@ -232,12 +261,12 @@ private fun Chip(text: String, onClick: () -> Unit) {
     }
 }
 
-/** A row with the choice on the right in violet; tapping opens a menu, like iOS's Picker. */
+/** A row with the choice on the right in violet; tapping opens a menu, like iOS's Picker.
+ *  With large text the choice goes under its label instead of squeezing it. */
 @Composable
 private fun MenuRow(label: String, value: String, options: List<Pair<String, String>>, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { open = true }, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+    val choice: @Composable () -> Unit = {
         Box {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(value, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
@@ -246,6 +275,17 @@ private fun MenuRow(label: String, value: String, options: List<Pair<String, Str
             DropdownMenu(open, { open = false }) {
                 options.forEach { (key, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { open = false; onPick(key) }) }
             }
+        }
+    }
+    if (isLarge()) {
+        Column(Modifier.fillMaxWidth().clickable { open = true }.padding(vertical = 8.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            choice()
+        }
+    } else {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { open = true }, verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            choice()
         }
     }
 }

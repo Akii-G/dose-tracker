@@ -20,7 +20,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.8), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-cryptography, libnotify-bin
+Depends: python3 (>= 3.8), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-cryptography, libnotify-bin, python3-gi-cairo, python3-cairo, gir1.2-pango-1.0
 Installed-Size: $SIZE
 Maintainer: Dose <dose@localhost>
 Homepage: https://github.com/Akii-G/dose-tracker

@@ -85,6 +85,73 @@ class ModelTest {
         assertNull(Reminders.next(AppStore(null), now, true))
     }
 
+    @Test fun perTimeAmounts() {
+        val s = AppStore(null)
+        s.put(Medicine(id = "pt", name = "Per time", schedule = Schedule(times = listOf("08:00", "20:00"), start = "2026-01-01",
+            amounts = mapOf("20:00" to 0.5, "13:00" to 2.0))))
+        val m = s.medicines["pt"]!!
+        assertEquals(mapOf("20:00" to 0.5), m.schedule.amounts)
+        assertEquals(1.5, m.perDay, 0.001)
+        s.mark("pt", "2026-02-01", "20:00", "taken")
+        assertEquals(0.5, s.doses["pt@2026-02-01@20:00"]!!.amount, 0.001)
+        // the same as the PC writes it, and read back
+        val json = m.schedule.json()
+        assertEquals(0.5, json.getJSONObject("amounts").getDouble("20:00"), 0.001)
+        assertEquals(m.schedule, Schedule.from(json))
+        assertFalse(Schedule(times = listOf("08:00")).cleaned().json().has("amounts"))
+    }
+
+    @Test fun aicFromTheBox() {
+        assertEquals("012745093", Aic.fromText("A012745093"))
+        assertNull(Aic.fromText("tachipirina"))
+        assertEquals("012745093", Aic.fromBarcode("A012745093"))
+        assertEquals("012345676", Aic.fromBarcode("0CSSBD"))                 // Code 32, published example
+        assertEquals("012745093", Aic.fromBarcode("]d20108012345678906" + "21ABC123\u001d" + "17271231" + "10L01\u001d" + "716012745093"))
+        assertEquals("012745093", Aic.fromBarcode("010801234567890617271231716012745093"))
+        assertNull(Aic.fromBarcode("hello"))
+        fun item(s: String, packs: String) = MedicineList.Item("Tachipirina", s, "Compressa", "Paracetamolo", "tachipirina", "paracetamolo", packs)
+        val all = listOf(item("500 mg", "012745:093,105"), item("1000 mg", "012745:220"))
+        assertEquals("1000 mg", Aic.find(all, "012745220")!!.strength)
+        assertEquals("500 mg", Aic.find(all, "012745999")!!.strength)
+        assertNull(Aic.find(all, "999999999"))
+        assertEquals(listOf("500 mg"), MedicineList.search(all, "A012745105").map { it.strength })
+    }
+
+    @Test fun reportCounts() {
+        val s = AppStore(null)
+        s.put(Medicine(id = "a", name = "A", schedule = Schedule(times = listOf("08:00", "20:00"), start = "2026-11-01")), "2026-11-01")
+        s.put(Medicine(id = "n", name = "N", schedule = Schedule("needed", emptyList(), start = "2026-11-01")), "2026-11-01")
+        s.mark("a", "2026-11-02", "08:00", "taken", "08:05")
+        s.mark("a", "2026-11-02", "20:00", "skipped")
+        s.mark("a", "2026-11-03", "08:00", "taken", "08:01")
+        s.takeNow("n", "2026-11-03", "15:00")
+        // the 3rd at 12:00: 20:00 isn't due yet, so it isn't counted
+        val d = Report.data(s, "2026-11-02", "2026-11-03", LocalDateTime.of(2026, 11, 3, 12, 0))
+        val c = d.meds.single()
+        assertEquals(listOf(3, 2, 1, 0), listOf(c.due, c.taken, c.skipped, c.missed))
+        assertEquals(1, d.needed.single().second)
+        assertEquals(listOf("2026-11-02", "2026-11-03"), d.days.map { it.first })
+        // a day without marks is "not taken" for each dose
+        val e = Report.data(s, "2026-11-04", "2026-11-04", LocalDateTime.of(2026, 11, 5, 9, 0))
+        assertEquals(2, e.meds.single().missed)
+        // stopped later: still counted on the days before
+        s.setArchived("a", true)
+        assertEquals(3, Report.data(s, "2026-11-02", "2026-11-03", LocalDateTime.of(2026, 11, 3, 12, 0)).meds.single().due)
+    }
+
+    @Test fun backupRestores() {
+        val s = AppStore(null)
+        s.put(Medicine(id = "a", name = "A", schedule = Schedule(times = listOf("08:00"), start = "2026-11-01")))
+        s.mark("a", "2026-11-02", "08:00", "taken")
+        val out = java.io.ByteArrayOutputStream()
+        Backup.write(s, out, "1.2.0")
+        val fresh = AppStore(null)
+        assertEquals(2, Backup.restore(fresh, out.toString("UTF-8")))
+        assertEquals(s.toJson().toString(), fresh.toJson().toString())
+        assertNull(Backup.restore(fresh, "{\"hello\": 1}"))
+        assertNull(Backup.restore(fresh, "not json"))
+    }
+
     @Test fun amounts() {
         assertEquals("½ pill", Units.amount(0.5, "pill"))
         assertEquals("1½ pills", Units.amount(1.5, "pill"))

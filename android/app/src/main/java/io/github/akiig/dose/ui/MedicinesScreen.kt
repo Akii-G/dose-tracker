@@ -56,12 +56,22 @@ private fun Footer() {
 @Composable
 private fun MedicineRow(m: Medicine, onClick: () -> Unit) {
     val store = LocalApp.current.store
+    val left = store.remaining(m)
+    val color = if (store.isLow(m)) Palette.warning else MaterialTheme.colorScheme.onSurfaceVariant
+    val detail = Describe.line(m.amount, m.unit, m.schedule)
+    if (isLarge()) {
+        // with large text the stock goes under, as one more line
+        val stock = left?.let { tr("%@ left", number(it)) + (store.daysLeft(m)?.let { d -> " · " + trn("%@ day", "%@ days", d) } ?: "") }
+        Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp)) {
+            TwoLines(m.title, detail)
+            if (stock != null) Text(stock, style = MaterialTheme.typography.bodySmall, color = color)
+        }
+        return
+    }
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        TwoLines(m.title, Units.amount(m.amount, m.unit) + " · " + Describe.schedule(m.schedule), Modifier.weight(1f))
-        val left = store.remaining(m)
+        TwoLines(m.title, detail, Modifier.weight(1f))
         if (left != null) {
-            val color = if (store.isLow(m)) Palette.warning else MaterialTheme.colorScheme.onSurfaceVariant
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
                 Text(tr("%@ left", number(left)), style = MaterialTheme.typography.bodySmall, color = color)
                 store.daysLeft(m)?.let { Text(trn("%@ day", "%@ days", it), style = MaterialTheme.typography.bodySmall, color = color) }

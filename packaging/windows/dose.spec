@@ -21,13 +21,14 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=["http.server", "cryptography.hazmat.primitives.ciphers.aead",
-                   "cryptography.hazmat.primitives.kdf.hkdf", "winreg"],
+                   "cryptography.hazmat.primitives.kdf.hkdf", "winreg", "csv",
+                   "cairo", "gi.repository.Pango", "gi.repository.PangoCairo"],     # the report PDF
     hookspath=[],
     hooksconfig={
         "gi": {
             "icons": ["Adwaita", "hicolor"],
             "themes": ["Adwaita"],
-            "module-versions": {"Gtk": "4.0", "Gdk": "4.0", "Adw": "1", "GdkPixbuf": "2.0"},
+            "module-versions": {"Gtk": "4.0", "Gdk": "4.0", "Adw": "1", "GdkPixbuf": "2.0", "Pango": "1.0", "PangoCairo": "1.0"},
         },
     },
     excludes=["tkinter", "unittest", "pydoc_data"],

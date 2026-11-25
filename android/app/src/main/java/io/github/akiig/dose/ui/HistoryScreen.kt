@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -44,12 +49,12 @@ import io.github.akiig.dose.Units
 import io.github.akiig.dose.tr
 
 @Composable
-fun HistoryScreen(start: String = Day.today) {
+fun HistoryScreen(start: String = Day.today, onReport: () -> Unit = {}) {
     val store = LocalApp.current.store
     var month by rememberSaveable { mutableStateOf(start.take(7) + "-01") }
     var selected by rememberSaveable { mutableStateOf(start) }
     Column(Modifier.fillMaxSize()) {
-        InlineTitle(tr("History"))
+        InlineTitle(tr("History")) { CircleButton(Icons.Filled.Description, tr("Report for your doctor"), onReport) }
         Page {
             Section { Calendar(month, selected, { month = Day.date(month)!!.plusMonths(it.toLong()).toString() }) { selected = it } }
             Section {
@@ -75,6 +80,7 @@ fun HistoryScreen(start: String = Day.today) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Calendar(month: String, selected: String, onShift: (Int) -> Unit, onPick: (String) -> Unit) {
     val store = LocalApp.current.store
@@ -84,7 +90,8 @@ private fun Calendar(month: String, selected: String, onShift: (Int) -> Unit, on
     val today = Day.today
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(Day.pretty(month, "LLLL yyyy"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(Day.pretty(month, "LLLL yyyy"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                fontSize = capped(20.sp, 1.6f))
             IconButton({ onShift(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, tr("Previous month"), tint = MaterialTheme.colorScheme.primary) }
             val canNext = month.take(7) < today.take(7)
             IconButton({ onShift(1) }, enabled = canNext) {
@@ -99,7 +106,8 @@ private fun Calendar(month: String, selected: String, onShift: (Int) -> Unit, on
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         when {
                             cell == null -> Spacer(Modifier.height(36.dp))
-                            cell.startsWith("w:") -> Text(cell.drop(2), style = MaterialTheme.typography.labelSmall,
+                            cell.startsWith("w:") -> Text(if (isLarge()) cell.drop(2).take(1) else cell.drop(2),
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                             else -> DayCell(cell, cell == selected, today) { onPick(cell) }
                         }
@@ -107,7 +115,7 @@ private fun Calendar(month: String, selected: String, onShift: (Int) -> Unit, on
                 }
             }
         }
-        Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        FlowRow(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Legend(Palette.taken, tr("All taken")); Legend(Palette.some, tr("Some")); Legend(Palette.none, tr("None marked"))
         }
     }
@@ -127,11 +135,12 @@ private fun DayCell(d: String, isSelected: Boolean, today: String, onClick: () -
         fill != null -> Color(0xff1b1b1b)
         else -> MaterialTheme.colorScheme.onSurface
     }
-    Box(Modifier.fillMaxWidth().height(36.dp).alpha(if (future) 0.35f else 1f).clip(RoundedCornerShape(9.dp))
+    Box(Modifier.fillMaxWidth().height(36.dp * minOf(LocalDensity.current.fontScale, 1.35f).coerceAtLeast(1f)).alpha(if (future) 0.35f else 1f).clip(RoundedCornerShape(9.dp))
         .background(fill ?: MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSystemInDarkTheme()) 0.08f else 0.05f))
         .then(if (isSelected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(9.dp)) else Modifier)
         .clickable(enabled = !future, onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(d.takeLast(2).toInt().toString(), style = MaterialTheme.typography.bodyMedium, color = ink,
+        Text(d.takeLast(2).toInt().toString(), style = MaterialTheme.typography.bodyMedium, color = ink, maxLines = 1,
+            fontSize = capped(15.sp),
             fontWeight = if (d == today) FontWeight.Bold else FontWeight.Normal)
     }
 }
@@ -155,8 +164,7 @@ private fun changeDetail(c: Change): String {
     val parts = mutableListOf(Day.pretty(c.date, "d MMM yyyy"))
     val d = c.detail
     if (d != null && c.kind != "stopped") {
-        parts.add(Units.amount(d.amount, d.unit))
-        parts.add(Describe.schedule(d.schedule.cleaned()))
+        parts.add(Describe.line(d.amount, d.unit, d.schedule.cleaned()))
     }
     return parts.joinToString(" · ")
 }

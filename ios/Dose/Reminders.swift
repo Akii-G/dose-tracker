@@ -30,7 +30,7 @@ enum Reminders {
         } else {
             c.title = again ? tr("%@ · still to take", time) : tr("%@ · time for your medicine", time)
             var body = meds.map(\.title).joined(separator: ", ")
-            if meds.count == 1 { body += " · " + Units.amount(meds[0].amount, meds[0].unit) }
+            if meds.count == 1 { body += " · " + Units.amount(meds[0].amount(at: time), meds[0].unit) }
             c.body = body
         }
         c.sound = .default

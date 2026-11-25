@@ -69,6 +69,10 @@ abstract class Screens(private val lang: String) {
         tab("Medicines")
         rule.onAllNodes(hasText("Risperidone 2 mg"))[0].performClick()
         shot("5-editor")
+        rule.onAllNodes(hasText(tr("Cancel")))[0].performClick()
+        tab("Settings")
+        rule.onAllNodes(hasText(tr("Report for your doctor")))[0].performScrollTo().performClick()
+        shot("6-report")
     }
 }
 
@@ -101,3 +105,16 @@ class ScreensItalian : Screens("it") { init { seed() } }
 
 @Config(qualifiers = "it-w411dp-h891dp-night-xxhdpi")
 class ScreensDark : Screens("it-dark") { init { seed() } }
+
+/** The largest text Android allows (200%): everything must still fit and be usable. */
+@Config(qualifiers = "it-w411dp-h891dp-xxhdpi", fontScale = 2.0f)
+class ScreensLargeText : Screens("it-large") { init { seed() } }
+
+@Config(qualifiers = "it-w411dp-h891dp-xxhdpi", fontScale = 1.25f)
+class ScreensText125 : Screens("it-125") { init { seed() } }
+
+@Config(qualifiers = "it-w411dp-h891dp-xxhdpi", fontScale = 1.5f)
+class ScreensText150 : Screens("it-150") { init { seed() } }
+
+@Config(qualifiers = "it-w411dp-h891dp-xxhdpi", fontScale = 1.75f)
+class ScreensText175 : Screens("it-175") { init { seed() } }
