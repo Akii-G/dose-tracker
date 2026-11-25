@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.github.akiig.dose.Day
+import io.github.akiig.dose.Describe
 import io.github.akiig.dose.Kinds
 import io.github.akiig.dose.LocalApp
 import io.github.akiig.dose.Medicine
@@ -65,7 +66,8 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
     var unit by remember { mutableStateOf(m.unit) }
     var kind by remember { mutableStateOf(m.schedule.kind) }
     val times = remember { mutableStateListOf(*m.schedule.times.ifEmpty { listOf("08:00") }.toTypedArray()) }
-    var weekdays by remember { mutableStateOf(m.schedule.weekdays.toSet()) }
+    // all seven ticked is "every day": start with none, so tapping Friday means only Friday
+    var weekdays by remember { mutableStateOf(if (m.schedule.kind == "weekdays" && m.schedule.weekdays.size < 7) m.schedule.weekdays.toSet() else emptySet()) }
     var every by remember { mutableStateOf(maxOf(m.schedule.every, 2)) }
     var start by remember { mutableStateOf(m.schedule.start) }
     var hasEnd by remember { mutableStateOf(m.schedule.end.isNotEmpty()) }
@@ -92,7 +94,7 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
         onClose()
     }
 
-    EditorDialog(if (original == null) tr("Add a medicine") else original.name, canSave = name.isNotBlank(),
+    EditorDialog(if (original == null) tr("Add a medicine") else original.name, canSave = name.isNotBlank() && (kind != "weekdays" || weekdays.isNotEmpty()),
         onCancel = onClose, onSave = ::save) {
         if (original == null) {
             Section(tr("Medicine"), footer = tr("Not in the list? Just type the name below.")) {
@@ -131,7 +133,10 @@ fun EditorScreen(original: Medicine?, onClose: () -> Unit) {
             MenuRow(tr("How often"), Kinds.all.first { it.first == kind }.second, Kinds.all) { kind = it }
             if (kind == "weekdays") {
                 Line()
-                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(if (weekdays.isEmpty()) tr("Tap the days you take it.") else Describe.days(weekdays.sorted()),
+                    Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (d in 1..7) {
                         val on = d in weekdays
                         Box(Modifier.weight(1f).heightIn(min = 34.dp).clip(RoundedCornerShape(50))

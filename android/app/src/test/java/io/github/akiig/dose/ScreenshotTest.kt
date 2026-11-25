@@ -5,6 +5,9 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -51,7 +54,7 @@ abstract class Screens(private val lang: String) {
         }
     }
 
-    private fun shot(name: String) {
+    protected fun shot(name: String) {
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("build/screenshots/${lang}_$name.png")
     }
@@ -69,7 +72,29 @@ abstract class Screens(private val lang: String) {
     }
 }
 
-class ScreensEnglish : Screens("en") { init { seed() } }
+class ScreensEnglish : Screens("en") {
+    init { seed() }
+
+    /** Tapping only Friday in a new medicine means Friday only (all seven used to start ticked). */
+    @Test fun onlyFriday() {
+        val state = AppState.get(ApplicationProvider.getApplicationContext())
+        rule.onAllNodes(androidx.compose.ui.test.hasContentDescription(tr("Add a medicine")))[0].performClick()
+        rule.onAllNodes(hasText(tr("Name")))[0].performTextInput("Friday pill")
+        rule.onAllNodes(hasText(tr("Every day")))[0].performScrollTo().performClick()
+        rule.onAllNodes(hasText(tr("Some days of the week")))[0].performClick()
+        rule.waitForIdle()
+        rule.onAllNodes(hasText(tr("Save")))[0]
+            .assertIsNotEnabled()     // no day picked yet
+        rule.onAllNodes(hasText(tr("Fri").take(2)))[0].performClick()
+        shot("friday")
+        rule.onAllNodes(hasText(tr("Save")))[0].performClick()
+        rule.waitForIdle()
+        val med = state.store.medicines.values.single { it.name == "Friday pill" }
+        org.junit.Assert.assertEquals(listOf(5), med.schedule.weekdays)
+        org.junit.Assert.assertEquals(Day.isoWeekday(Day.today) == 5, med.dueOn(Day.today))
+        rule.runOnUiThread { state.store.delete(med.id) }
+    }
+}
 
 @Config(qualifiers = "it-w411dp-h891dp-xxhdpi")
 class ScreensItalian : Screens("it") { init { seed() } }

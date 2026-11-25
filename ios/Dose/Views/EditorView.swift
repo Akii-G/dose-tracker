@@ -41,7 +41,8 @@ struct EditorView: View {
         let day = Day.today
         _times = State(initialValue: (m.schedule.times.isEmpty ? ["08:00"] : m.schedule.times)
             .compactMap { Day.time($0, on: day) }.map { TimeItem(date: $0) })
-        _weekdays = State(initialValue: Set(m.schedule.weekdays))
+        // all seven ticked is "every day": start with none, so tapping Friday means only Friday
+        _weekdays = State(initialValue: m.schedule.kind == "weekdays" && m.schedule.weekdays.count < 7 ? Set(m.schedule.weekdays) : [])
         _every = State(initialValue: max(m.schedule.every, 2))
         _start = State(initialValue: Day.date(m.schedule.start) ?? Date())
         _hasEnd = State(initialValue: !m.schedule.end.isEmpty)
@@ -94,6 +95,9 @@ struct EditorView: View {
                         ForEach(Kinds.all, id: \.key) { k in Text(k.label).tag(k.key) }
                     }
                     if kind == "weekdays" {
+                        Text(weekdays.isEmpty ? tr("Tap the days you take it.")
+                             : weekdays.sorted().map { Day.weekdayShort[$0 - 1] }.joined(separator: ", "))
+                            .font(.caption).foregroundStyle(.secondary)
                         HStack(spacing: 6) {
                             ForEach(1...7, id: \.self) { d in
                                 let on = weekdays.contains(d)
@@ -167,7 +171,7 @@ struct EditorView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || (kind == "weekdays" && weekdays.isEmpty))
                 }
             }
             .confirmationDialog(tr("Delete %@ and every dose you marked for it? This can't be undone.", original?.name ?? ""),

@@ -225,6 +225,9 @@ object Kinds {
 }
 
 object Describe {
+    /** "Fri", "Mon, Thu". */
+    fun days(days: List<Int>): String = days.joinToString(", ") { Day.weekdayShort[it - 1] }
+
     /** "Every day at 08:00 and 20:00", "Mon, Thu at 09:00", "Every 3 days at 08:00", "When needed". */
     fun schedule(s: Schedule): String {
         var out = if (s.kind == "needed") tr("When needed") else {

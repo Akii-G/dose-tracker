@@ -512,3 +512,9 @@ msgstr "Stile"
 
 msgid "The background part of Dose isn't running, so the phone can't reach this PC. Open Dose again, or reinstall it"
 msgstr "La parte di Dose in background non è attiva, quindi il telefono non può raggiungere questo PC. Riapri Dose, o reinstallalo"
+
+msgid "Tap the days you take it."
+msgstr "Tocca i giorni in cui lo prendi."
+
+msgid "Pick at least one day."
+msgstr "Scegli almeno un giorno."

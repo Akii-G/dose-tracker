@@ -1804,12 +1804,16 @@ class Editor(Gtk.Window):
         self.kind.connect("notify::selected", lambda *_: self.update_kind())
         row.add_suffix(self.kind)
         lb.append(row)
-        self.days_row = Adw.ActionRow(title=tr("Days"))
+        self.days_row = Adw.ActionRow(title=tr("Days"), subtitle=tr("Tap the days you take it."))
         days_box = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
         self.day_buttons = []
+        # all seven ticked is "every day": start with none, so tapping Friday means only Friday
+        picked = s["weekdays"] if s["kind"] == "weekdays" and len(s["weekdays"]) < 7 else []
         for i, wd in enumerate(WEEKDAYS):
-            b = Gtk.ToggleButton(label=wd[:2], active=(i + 1) in s["weekdays"])
+            b = Gtk.ToggleButton(label=wd[:2], active=(i + 1) in picked)
             b.add_css_class("dose-chip")
+            b.connect("toggled", lambda *_: (self.days_row.set_subtitle(tr("Tap the days you take it.")),
+                                             self.days_row.remove_css_class("dose-late")))
             days_box.append(b)
             self.day_buttons.append(b)
         self.days_row.add_suffix(days_box)
@@ -1985,6 +1989,10 @@ class Editor(Gtk.Window):
         med = self.collect()
         if med is None:
             self.name.grab_focus()
+            return
+        if med["schedule"]["kind"] == "weekdays" and not med["schedule"]["weekdays"]:
+            self.days_row.set_subtitle(tr("Pick at least one day."))
+            self.days_row.add_css_class("dose-late")
             return
         self.win.change(lambda s: s.put_medicine(med))
         self.close()
@@ -2250,6 +2258,14 @@ def _make_app_class():
                     css.load_from_data(CSS.encode())
                 Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                           Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                # the app's icon when it isn't installed in the system (Windows, or from source)
+                theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+                dirs = [os.path.join(here(), "..", "data")]
+                if getattr(sys, "_MEIPASS", None):
+                    dirs.insert(0, os.path.join(sys._MEIPASS, "share", "icons"))
+                for d in dirs:
+                    if os.path.isdir(d):
+                        theme.add_search_path(d)
                 apply_style()
                 Adw.StyleManager.get_default().connect("notify::dark", lambda *_: apply_style())
                 threading.Thread(target=start_background, daemon=True).start()
