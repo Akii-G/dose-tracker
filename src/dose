@@ -1,0 +1,1819 @@
+#!/usr/bin/env python3
+"""Dose — your medicines, quietly. The sister app of Sottovoce.
+
+Keeps your medicines and their schedules, reminds you when it's time, and remembers what
+you took. Everything stays in one plain JSON file on your devices; the iPhone app syncs with
+this PC over your home Wi-Fi, encrypted.
+
+    dose                    the window
+    dose --background       reminders on this PC, and the phone sync when it's switched on
+"""
+import datetime as dt
+import hmac
+import json
+import os
+import re
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import unicodedata
+import uuid
+
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+
+VERSION = "1.0.0"
+APP_ID = "app.dose.Dose"
+SYNC_PORT = 8766
+IS_WINDOWS = sys.platform == "win32"
+
+# ----------------------------------------------------------------- languages
+# tr() and trn() look the English text up in po/it.po (or /usr/share/dose/po/it.po). The
+# language follows the system unless one is chosen in Preferences (config "language") or
+# set with DOSE_LANG.
+
+LANGUAGES = [("auto", "Automatic"), ("en", "English"), ("it", "Italiano")]
+
+
+def config_dir():
+    return os.environ.get("DOSE_CONFIG_DIR") or os.path.join(
+        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "dose")
+
+
+def data_dir():
+    path = os.environ.get("DOSE_DATA_DIR") or os.path.join(
+        os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "dose")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def load_config():
+    try:
+        with open(os.path.join(config_dir(), "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(cfg):
+    os.makedirs(config_dir(), exist_ok=True)
+    path = os.path.join(config_dir(), "config.json")
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=1)
+    os.replace(path + ".tmp", path)
+
+
+PREF_DEFAULTS = {"language": "auto", "remind": True, "follow_up": True, "discreet": False,
+                 "sync": False}
+
+
+def prefs():
+    cfg = load_config()
+    return {k: cfg.get(k, v) for k, v in PREF_DEFAULTS.items()}
+
+
+def set_pref(key, value):
+    cfg = load_config()
+    cfg[key] = value
+    save_config(cfg)
+
+
+def system_language():
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = (os.environ.get(var) or "").split(":")[0]
+        if value:
+            code = value.split(".")[0].split("_")[0].split("@")[0].lower()
+            return "en" if code in ("c", "posix") else code
+    return "en"
+
+
+def pick_language():
+    wanted = os.environ.get("DOSE_LANG") or prefs()["language"]
+    if wanted == "auto":
+        wanted = system_language()
+    return wanted if wanted in ("en", "it") else "en"
+
+
+def here():
+    return os.path.dirname(os.path.realpath(os.path.abspath(__file__)))
+
+
+def share_paths(name):
+    """data files (po/it.po, medicines-it.tsv) in the source tree or installed."""
+    dirs = [os.environ.get("DOSE_SHARE_DIR"), getattr(sys, "_MEIPASS", None),
+            os.path.join(here(), ".."), "/usr/share/dose"]
+    return [os.path.join(d, name) for d in dirs if d]
+
+
+def read_po(path):
+    """A gettext .po file -> {msgid: text, (msgid, msgid_plural): [forms]}."""
+    catalog, entries, entry, key = {}, [], None, None
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith('"'):
+                if entry is not None and key:
+                    entry[key] += json.loads(line)
+                continue
+            name, _sep, rest = line.partition(" ")
+            if name == "msgid":
+                entry = {}
+                entries.append(entry)
+            if entry is not None:
+                key = name
+                entry[key] = json.loads(rest.strip())
+    for e in entries:
+        msgid = e.get("msgid")
+        if not msgid:
+            continue
+        if "msgid_plural" in e:
+            forms = [e.get("msgstr[0]", ""), e.get("msgstr[1]", "")]
+            if all(forms):
+                catalog[(msgid, e["msgid_plural"])] = forms
+        elif e.get("msgstr"):
+            catalog[msgid] = e["msgstr"]
+    return catalog
+
+
+LANG_CODE = pick_language()
+CATALOG = {}
+if LANG_CODE != "en":
+    for _path in share_paths(os.path.join("po", LANG_CODE + ".po")):
+        if os.path.exists(_path):
+            try:
+                CATALOG = read_po(_path)
+            except (OSError, ValueError):
+                pass
+            break
+
+
+def tr(text):
+    return CATALOG.get(text) or text
+
+
+def trn(one, many, n):
+    forms = CATALOG.get((one, many))
+    if forms:
+        return forms[0] if n == 1 else forms[1]
+    return one if n == 1 else many
+
+
+WEEKDAYS = [tr("Mon"), tr("Tue"), tr("Wed"), tr("Thu"), tr("Fri"), tr("Sat"), tr("Sun")]
+WEEKDAYS_LONG = [tr("Monday"), tr("Tuesday"), tr("Wednesday"), tr("Thursday"), tr("Friday"),
+                 tr("Saturday"), tr("Sunday")]
+MONTHS = [tr("January"), tr("February"), tr("March"), tr("April"), tr("May"), tr("June"),
+          tr("July"), tr("August"), tr("September"), tr("October"), tr("November"), tr("December")]
+
+
+def fmt_day(day, long=False, year=False):
+    """"Mon 24 Nov" / "Monday 24 November 2026", in the app's language."""
+    wd = (WEEKDAYS_LONG if long else WEEKDAYS)[day.weekday()]
+    month = MONTHS[day.month - 1] if long else MONTHS[day.month - 1][:3]
+    if LANG_CODE == "it":
+        wd, month = wd.lower(), month.lower()
+    out = "%s %d %s" % (wd, day.day, month) + (" %d" % day.year if year else "")
+    return out[:1].upper() + out[1:]
+
+
+def fmt_date(day):
+    """"24 Nov 2026"."""
+    month = MONTHS[day.month - 1][:3]
+    return "%d %s %d" % (day.day, month.lower() if LANG_CODE == "it" else month, day.year)
+
+
+# ----------------------------------------------------------------- the model
+#
+# One file, dose.json: {"medicines": [...], "doses": [...], "deleted": [{"id", "stamp"}]}.
+# The same fields as the iPhone app (ios/Dose/Models.swift); docs/FORMAT.md describes them.
+# Every medicine and dose carries "updated" (UTC); when two devices changed the same one, the
+# newer change wins. Deletions are kept as tombstones so they sync too.
+
+UNITS = [("pill", tr("pill"), tr("pills")), ("capsule", tr("capsule"), tr("capsules")),
+         ("drop", tr("drop"), tr("drops")), ("ml", tr("ml"), tr("ml")),
+         ("puff", tr("puff"), tr("puffs")), ("sachet", tr("sachet"), tr("sachets")),
+         ("patch", tr("patch"), tr("patches")), ("injection", tr("injection"), tr("injections")),
+         ("application", tr("application"), tr("applications"))]
+UNIT_KEYS = [u[0] for u in UNITS]
+KINDS = [("daily", tr("Every day")), ("weekdays", tr("Some days of the week")),
+         ("every", tr("Every few days")), ("needed", tr("Only when needed"))]
+TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def now_stamp():
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def new_id():
+    return uuid.uuid4().hex[:16]
+
+
+def today():
+    return dt.date.today()
+
+
+def parse_day(value):
+    try:
+        return dt.date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def clean_stamp(value):
+    return value if isinstance(value, str) and re.match(r"^\d{4}-\d\d-\d\dT[\d:.]+Z$", value) else ""
+
+
+def clean_amount(value):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return round(min(max(v, 0.25), 1000), 2)
+
+
+def fmt_amount(amount, unit):
+    """1 -> "1 pill", 0.5 -> "½ pill", 1.5 -> "1½ pills", 2.5 ml -> "2.5 ml"."""
+    names = {u[0]: (u[1], u[2]) for u in UNITS}
+    one, many = names.get(unit, (unit, unit))
+    whole, frac = int(amount), round(amount - int(amount), 2)
+    glyph = {0.25: "¼", 0.5: "½", 0.75: "¾"}.get(frac)
+    if unit == "ml" or (frac and not glyph):
+        num = ("%g" % amount).replace(".", "," if LANG_CODE == "it" else ".")
+    else:
+        num = (str(whole) if whole else "") + (glyph or "") if frac else str(whole)
+    return "%s %s" % (num, one if amount <= 1 else many)
+
+
+def clean_schedule(s):
+    s = s if isinstance(s, dict) else {}
+    kind = s.get("kind") if s.get("kind") in dict(KINDS) else "daily"
+    times = sorted({t for t in (s.get("times") or []) if isinstance(t, str) and TIME_RE.match(t)})
+    if kind != "needed" and not times:
+        times = ["08:00"]
+    days = sorted({int(d) for d in (s.get("weekdays") or []) if str(d).isdigit() and 1 <= int(d) <= 7})
+    every = s.get("every")
+    every = int(every) if isinstance(every, (int, float)) and 1 <= int(every) <= 365 else 2
+    start = s.get("start") if parse_day(s.get("start")) else today().isoformat()
+    end = s.get("end") if parse_day(s.get("end")) else ""
+    return {"kind": kind, "times": times if kind != "needed" else [], "weekdays": days or [1, 2, 3, 4, 5, 6, 7],
+            "every": every, "start": start, "end": end}
+
+
+def clean_medicine(m):
+    """A medicine from the file or a phone, every field checked."""
+    if not isinstance(m, dict) or not str(m.get("id") or "").strip():
+        return None
+    text = lambda k, n=200: str(m.get(k) or "").strip()[:n]
+    if not text("name"):
+        return None
+    stock = m.get("stock") if isinstance(m.get("stock"), dict) else None
+    if stock:
+        try:
+            stock = {"count": round(max(float(stock.get("count")), 0), 2), "set": clean_stamp(stock.get("set")) or now_stamp()}
+        except (TypeError, ValueError):
+            stock = None
+    refill = m.get("refillDays")
+    history = [h for h in (m.get("history") or []) if isinstance(h, dict) and parse_day(h.get("date"))
+               and h.get("kind") in ("started", "changed", "stopped", "restarted")][:500]
+    return {"id": text("id", 64), "name": text("name"), "strength": text("strength", 60),
+            "form": text("form", 80), "ingredient": text("ingredient"), "note": text("note", 500),
+            "amount": clean_amount(m.get("amount")),
+            "unit": m.get("unit") if m.get("unit") in UNIT_KEYS else "pill",
+            "schedule": clean_schedule(m.get("schedule")), "stock": stock,
+            "refillDays": int(refill) if isinstance(refill, (int, float)) and 0 <= refill <= 90 else 7,
+            "archived": m.get("archived") is True, "history": history,
+            "updated": clean_stamp(m.get("updated")) or now_stamp()}
+
+
+def clean_dose(d):
+    if not isinstance(d, dict) or not str(d.get("id") or "").strip() or not parse_day(d.get("day")):
+        return None
+    if d.get("status") not in ("taken", "skipped") or not str(d.get("med") or "").strip():
+        return None
+    t = d.get("time") if isinstance(d.get("time"), str) and TIME_RE.match(d.get("time")) else ""
+    at = d.get("at") if isinstance(d.get("at"), str) and TIME_RE.match(d.get("at")) else ""
+    return {"id": str(d["id"])[:120], "med": str(d["med"])[:64], "day": d["day"], "time": t,
+            "status": d["status"], "at": at, "amount": clean_amount(d.get("amount")),
+            "stamp": clean_stamp(d.get("stamp")) or now_stamp(),
+            "updated": clean_stamp(d.get("updated")) or now_stamp()}
+
+
+def slot_id(med_id, day, time_):
+    return "%s@%s@%s" % (med_id, day.isoformat() if isinstance(day, dt.date) else day, time_)
+
+
+def due_on(med, day):
+    """Whether a scheduled medicine has doses on `day` (as-needed ones never do)."""
+    s = med["schedule"]
+    start, end = parse_day(s["start"]), parse_day(s["end"])
+    if med["archived"] or s["kind"] == "needed" or (start and day < start) or (end and day > end):
+        return False
+    if s["kind"] == "weekdays":
+        return day.isoweekday() in s["weekdays"]
+    if s["kind"] == "every":
+        return ((day - (start or day)).days % s["every"]) == 0
+    return True
+
+
+def per_day(med):
+    """Average amount a day, for how long the stock lasts."""
+    s = med["schedule"]
+    n = len(s["times"]) * med["amount"]
+    if s["kind"] == "weekdays":
+        return n * len(s["weekdays"]) / 7
+    if s["kind"] == "every":
+        return n / s["every"]
+    if s["kind"] == "needed":
+        return 0
+    return n
+
+
+def schedule_text(med):
+    """"Every day at 08:00 and 20:00", "Mon, Wed at 09:00", "Every 3 days at 08:00", "When needed"."""
+    s = med["schedule"]
+    if s["kind"] == "needed":
+        out = tr("When needed")
+    else:
+        times = s["times"]
+        at = times[0] if len(times) == 1 else tr("%s and %s") % (", ".join(times[:-1]), times[-1])
+        if s["kind"] == "weekdays" and len(s["weekdays"]) < 7:
+            out = tr("%s at %s") % (", ".join(WEEKDAYS[d - 1] for d in s["weekdays"]), at)
+        elif s["kind"] == "every" and s["every"] > 1:
+            out = tr("Every %d days at %s") % (s["every"], at)
+        else:
+            out = tr("Every day at %s") % at
+    end = parse_day(s["end"])
+    if end:
+        out += " · " + tr("until %s") % fmt_date(end)
+    return out
+
+
+class Store:
+    """dose.json: medicines, doses and tombstones."""
+
+    def __init__(self, path=None):
+        self.path = path if path is not None else os.path.join(data_dir(), "dose.json")
+        self.meds, self.doses, self.deleted = {}, {}, {}
+        self.mtime = None
+        if self.path:
+            self.load()
+
+    # -- file
+
+    def load(self):
+        self.meds, self.doses, self.deleted = {}, {}, {}
+        self.mtime = self.file_mtime()
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                doc = json.load(f)
+        except (OSError, ValueError):
+            return
+        self.read(doc)
+
+    def read(self, doc):
+        doc = doc if isinstance(doc, dict) else {}
+        for m in doc.get("medicines") or []:
+            m = clean_medicine(m)
+            if m:
+                self.meds[m["id"]] = m
+        for d in doc.get("doses") or []:
+            d = clean_dose(d)
+            if d:
+                self.doses[d["id"]] = d
+        for t in doc.get("deleted") or []:
+            if isinstance(t, dict) and t.get("id") and clean_stamp(t.get("stamp")):
+                self.deleted[str(t["id"])[:120]] = t["stamp"]
+
+    def file_mtime(self):
+        try:
+            return os.stat(self.path).st_mtime_ns
+        except OSError:
+            return None
+
+    def changed_on_disk(self):
+        return bool(self.path) and self.file_mtime() != self.mtime
+
+    def save(self):
+        if not self.path:
+            return
+        if self.changed_on_disk():          # another process (the sync) wrote: keep both
+            other = Store(self.path)
+            self.absorb(other.to_json())
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.to_json(), f, ensure_ascii=False, indent=1)
+        os.replace(tmp, self.path)
+        self.mtime = self.file_mtime()
+
+    def to_json(self):
+        return {"medicines": sorted(self.meds.values(), key=lambda m: m["name"].lower()),
+                "doses": sorted(self.doses.values(), key=lambda d: (d["day"], d["time"], d["id"])),
+                "deleted": [{"id": k, "stamp": v} for k, v in sorted(self.deleted.items())]}
+
+    def absorb(self, doc):
+        """Merge another copy (the phone's): the newer change wins. Returns how many changed."""
+        other = Store("")
+        other.read(doc)
+        changes = 0
+        for key, stamp in other.deleted.items():
+            if stamp > self.deleted.get(key, ""):
+                self.deleted[key] = stamp
+                changes += 1
+        for mine, theirs in ((self.meds, other.meds), (self.doses, other.doses)):
+            for key, item in theirs.items():
+                if item["updated"] > mine.get(key, {}).get("updated", "") and item["updated"] > self.deleted.get(key, ""):
+                    mine[key] = item
+                    changes += 1
+            for key in list(mine):
+                if self.deleted.get(key, "") >= mine[key]["updated"]:
+                    del mine[key]
+                    changes += 1
+        return changes
+
+    # -- medicines
+
+    def active(self):
+        return sorted((m for m in self.meds.values() if not m["archived"]), key=lambda m: m["name"].lower())
+
+    def archived(self):
+        return sorted((m for m in self.meds.values() if m["archived"]), key=lambda m: m["name"].lower())
+
+    @staticmethod
+    def snapshot(med):
+        return {"amount": med["amount"], "unit": med["unit"], "strength": med["strength"],
+                "schedule": med["schedule"]}
+
+    def put_medicine(self, med, when=None):
+        """Add or change a medicine; a new one or a new dose or schedule goes in its history."""
+        when = (when or today()).isoformat()
+        med = clean_medicine(dict(med, updated=now_stamp()))
+        old = self.meds.get(med["id"])
+        if old is None:
+            med["history"] = [{"date": when, "kind": "started", "detail": self.snapshot(med)}]
+        else:
+            med["history"] = list(old["history"])
+            if self.snapshot(old) != self.snapshot(med):
+                med["history"].append({"date": when, "kind": "changed", "detail": self.snapshot(med)})
+        self.meds[med["id"]] = med
+        self.deleted.pop(med["id"], None)
+        return med
+
+    def set_archived(self, med_id, archived, when=None):
+        med = dict(self.meds[med_id])
+        med["archived"] = archived
+        med["history"] = list(med["history"]) + [{"date": (when or today()).isoformat(),
+                                                  "kind": "stopped" if archived else "restarted",
+                                                  "detail": self.snapshot(med)}]
+        med["updated"] = now_stamp()
+        self.meds[med_id] = med
+
+    def delete_medicine(self, med_id):
+        stamp = now_stamp()
+        self.meds.pop(med_id, None)
+        self.deleted[med_id] = stamp
+        for key in [k for k, d in self.doses.items() if d["med"] == med_id]:
+            del self.doses[key]
+            self.deleted[key] = stamp
+
+    # -- doses
+
+    def slots(self, day):
+        """[(time, med, dose or None)] scheduled on `day`, by time then name."""
+        out = []
+        for med in self.meds.values():
+            if due_on(med, day):
+                for t in med["schedule"]["times"]:
+                    out.append((t, med, self.doses.get(slot_id(med["id"], day, t))))
+        return sorted(out, key=lambda x: (x[0], x[1]["name"].lower()))
+
+    def extra(self, day):
+        """Doses taken when needed on `day`."""
+        d = day.isoformat()
+        return sorted((x for x in self.doses.values() if x["day"] == d and not x["time"]),
+                      key=lambda x: x["at"])
+
+    def mark(self, med_id, day, time_, status, at=None):
+        med = self.meds[med_id]
+        key = slot_id(med_id, day, time_)
+        now = now_stamp()
+        self.doses[key] = {"id": key, "med": med_id, "day": day.isoformat(), "time": time_,
+                           "status": status, "at": at or dt.datetime.now().strftime("%H:%M"),
+                           "amount": med["amount"], "stamp": now, "updated": now}
+        self.deleted.pop(key, None)
+
+    def take_now(self, med_id, day=None, at=None, amount=None):
+        med = self.meds[med_id]
+        key, now = new_id(), now_stamp()
+        self.doses[key] = {"id": key, "med": med_id, "day": (day or today()).isoformat(), "time": "",
+                           "status": "taken", "at": at or dt.datetime.now().strftime("%H:%M"),
+                           "amount": clean_amount(amount or med["amount"]), "stamp": now, "updated": now}
+        return key
+
+    def unmark(self, dose_id):
+        if self.doses.pop(dose_id, None) is not None:
+            self.deleted[dose_id] = now_stamp()
+
+    def day_counts(self, day):
+        """(due, taken, skipped) for a day."""
+        slots = self.slots(day)
+        taken = sum(1 for _t, _m, d in slots if d and d["status"] == "taken")
+        skipped = sum(1 for _t, _m, d in slots if d and d["status"] == "skipped")
+        return len(slots), taken, skipped
+
+    # -- stock
+
+    def remaining(self, med):
+        """How many are left, counting the doses taken since the count was set; None if not counted."""
+        stock = med.get("stock")
+        if not stock:
+            return None
+        used = sum(d["amount"] for d in self.doses.values()
+                   if d["med"] == med["id"] and d["status"] == "taken" and d["stamp"] > stock["set"])
+        return max(stock["count"] - used, 0)
+
+    def days_left(self, med):
+        left, rate = self.remaining(med), per_day(med)
+        if left is None or not rate:
+            return None
+        return int(left / rate)
+
+    def low(self, med):
+        days = self.days_left(med)
+        return days is not None and days <= med["refillDays"]
+
+
+# ----------------------------------------------------------------- medicine search
+# data/medicines-it.tsv, built from AIFA's open data by tools/build_medicines.py:
+# name, strength, form, active ingredient. Searched here, on the device: nothing is looked
+# up online, so no one learns what you take.
+
+_MEDICINES = None
+
+
+def fold(text):
+    """Lower case without accents: "Perché" -> "perche"."""
+    return "".join(c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn")
+
+
+def medicines():
+    global _MEDICINES
+    if _MEDICINES is None:
+        _MEDICINES = []
+        for path in share_paths(os.path.join("data", "medicines-it.tsv")) + share_paths("medicines-it.tsv"):
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("#"):
+                            continue
+                        parts = line.rstrip("\n").split("\t")
+                        if len(parts) == 4:
+                            _MEDICINES.append(tuple(parts) + (fold(parts[0]), fold(parts[3])))
+                break
+    return _MEDICINES
+
+
+def search_medicines(query, limit=40):
+    """Names starting with the words first, then ingredients, then names containing them."""
+    q = fold(query.strip())
+    if len(q) < 2:
+        return []
+    first, second, third = [], [], []
+    for name, strength, form, ingredient, fname, fingredient in medicines():
+        if fname.startswith(q):
+            first.append((name, strength, form, ingredient))
+        elif fingredient.startswith(q):
+            second.append((name, strength, form, ingredient))
+        elif q in fname or q in fingredient:
+            third.append((name, strength, form, ingredient))
+        if len(first) >= limit:
+            break
+    return (first + second + third)[:limit]
+
+
+# ----------------------------------------------------------------- encrypted sync
+#
+# The same scheme as Sottovoce: AES-256-GCM with a key derived from the shared token
+# (HKDF-SHA256), so the token never crosses the network. A message is JSON {"v": 1, "n":
+# base64 nonce, "c": base64 ciphertext+tag}; the additional data binds it to its endpoint
+# and direction. ios/Dose/SyncCrypto.swift must match; ios/CryptoCheck checks both.
+
+SYNC_SALT, SYNC_INFO = b"dose-sync", b"dose sync v1"
+
+
+def sync_key(token):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=SYNC_SALT, info=SYNC_INFO).derive(token.encode("utf-8"))
+
+
+def sync_aad(path, reply):
+    return ("dose/v1 %s %s" % ("reply" if reply else "request", path)).encode("utf-8")
+
+
+def seal(token, path, obj, reply=False, nonce=None):
+    import base64
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    nonce = nonce or secrets.token_bytes(12)
+    data = AESGCM(sync_key(token)).encrypt(nonce, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
+                                           sync_aad(path, reply))
+    return json.dumps({"v": 1, "n": base64.b64encode(nonce).decode(), "c": base64.b64encode(data).decode()}).encode()
+
+
+def unseal(token, path, body, reply=False):
+    import base64, binascii
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    try:
+        doc = json.loads(body)
+        nonce, data = base64.b64decode(doc["n"]), base64.b64decode(doc["c"])
+        if doc.get("v") != 1 or len(nonce) != 12:
+            raise ValueError("unknown format")
+        return json.loads(AESGCM(sync_key(token)).decrypt(nonce, data, sync_aad(path, reply)))
+    except (KeyError, TypeError, binascii.Error, InvalidTag, UnicodeDecodeError, ValueError, AttributeError) as err:
+        raise ValueError("not readable with this token") from err
+
+
+def crypto_available():
+    try:
+        import cryptography.hazmat.primitives.ciphers.aead  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def sync_config():
+    """Token and port for the phone sync (created on first use, readable only by you)."""
+    path = os.path.join(data_dir(), "sync.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        if isinstance(cfg.get("token"), str) and len(cfg["token"]) >= 16:
+            cfg.setdefault("port", SYNC_PORT)
+            return cfg
+    except (OSError, ValueError, AttributeError):
+        pass
+    return new_sync_token(port=SYNC_PORT)
+
+
+def new_sync_token(port=None):
+    path = os.path.join(data_dir(), "sync.json")
+    cfg = {"token": secrets.token_urlsafe(18), "port": port or sync_config().get("port", SYNC_PORT)}
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    os.replace(path + ".tmp", path)
+    return cfg
+
+
+def lan_address():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("192.0.2.1", 9))   # no packet is sent; it only picks the LAN interface
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except OSError:
+        return None
+
+
+def sync_status_path():
+    return os.path.join(data_dir(), "sync-last.txt")
+
+
+def sync_with_phone(doc):
+    """Merge what the phone sent into dose.json and return the merged state."""
+    store = Store()
+    changed = store.absorb(doc if isinstance(doc, dict) else {})
+    if changed:
+        store.save()
+    state = store.to_json()
+    state["changed"] = changed
+    return state
+
+
+def make_server(port):
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        server_version = "Dose/" + VERSION
+
+        def send(self, code, body, kind="application/json"):
+            self.send_response(code)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def error(self, code, message):
+            self.send(code, json.dumps({"error": message}).encode("utf-8"))
+
+        def do_GET(self):
+            self.send(200, b"Dose sync is running.\n", "text/plain")
+
+        def do_POST(self):
+            route = self.path.split("?", 1)[0].rstrip("/")
+            if not prefs()["sync"]:
+                self.error(403, tr("Phone sync is switched off in Dose on your PC."))
+                return
+            if not crypto_available():
+                self.error(501, tr("Sync needs the python3-cryptography package on the PC."))
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if not 0 < length <= 30 * 1024 * 1024:
+                self.error(400, tr("Empty request, or too large."))
+                return
+            token = sync_config()["token"]
+            try:
+                doc = unseal(token, route, self.rfile.read(length))
+            except ValueError:
+                self.error(401, tr("The token doesn't match. Copy it again from Dose on your PC."))
+                return
+            if route == "/api/e/ping":
+                answer = {"app": "Dose", "version": VERSION}
+            elif route == "/api/e/sync":
+                answer = sync_with_phone(doc)
+                device = str(doc.get("device") or "") if isinstance(doc, dict) else ""
+                try:
+                    with open(sync_status_path(), "w", encoding="utf-8") as f:
+                        f.write("%s\n%s\n%d\n" % (dt.datetime.now().strftime("%Y-%m-%d %H:%M"), device[:60],
+                                                  answer["changed"]))
+                except OSError:
+                    pass
+            else:
+                self.error(404, "unknown")
+                return
+            self.send(200, seal(token, route, answer, reply=True))
+
+        def log_message(self, fmt, *args):
+            sys.stderr.write("dose-sync: %s\n" % (fmt % args))
+
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server.daemon_threads = True
+    return server
+
+
+# ----------------------------------------------------------------- reminders on this PC
+#
+# `dose --background` (the dose-background user service) checks every 30 seconds for doses
+# that are due and not marked yet, and shows a notification with Taken and Later buttons
+# (notify-send). One reminder at the time, and one more 30 minutes later if follow-ups are on.
+
+def notified_path():
+    return os.path.join(data_dir(), "notified.json")
+
+
+def due_now(store, now, follow_up, snoozed):
+    """[(key, time, [meds], again)] reminders to show at `now`, grouped by time."""
+    day = now.date()
+    groups = {}
+    for t, med, dose in store.slots(day):
+        if dose:
+            continue
+        at = dt.datetime.combine(day, dt.time(int(t[:2]), int(t[3:])))
+        if now < at or now - at > dt.timedelta(hours=3):
+            continue
+        groups.setdefault(t, []).append(med)
+    out = []
+    for t, meds in sorted(groups.items()):
+        at = dt.datetime.combine(day, dt.time(int(t[:2]), int(t[3:])))
+        key = "%s %s" % (day.isoformat(), t)
+        state = snoozed.get(key)
+        if state is None:
+            out.append((key, t, meds, False))
+        elif state.get("until") and now.timestamp() >= state["until"]:
+            out.append((key, t, meds, True))
+        elif follow_up and not state.get("again") and now - at >= dt.timedelta(minutes=30) \
+                and not state.get("until"):
+            out.append((key, t, meds, True))
+    return out
+
+
+def reminder_text(t, meds, discreet):
+    if discreet:
+        return tr("Dose"), tr("Time for your %s dose") % t
+    names = ", ".join(m["name"] + (" " + m["strength"] if m["strength"] else "") for m in meds)
+    amounts = ""
+    if len(meds) == 1:
+        amounts = " · " + fmt_amount(meds[0]["amount"], meds[0]["unit"])
+    return tr("%s · time for your medicine") % t, names + amounts
+
+
+def notify(title, body, actions):
+    """notify-send with buttons; returns the chosen action or None. Blocks until answered."""
+    exe = shutil.which("notify-send")
+    if not exe:
+        return None
+    args = [exe, "-a", "Dose", "-i", APP_ID, "-u", "normal"]
+    for key, label in actions:
+        args += ["-A", "%s=%s" % (key, label)]
+    try:
+        out = subprocess.run(args + [title, body], capture_output=True, text=True, timeout=6 * 3600)
+        if out.returncode != 0 and actions:     # an older notify-send without buttons
+            subprocess.run([exe, "-a", "Dose", "-i", APP_ID, title, body], timeout=30)
+            return None
+        return out.stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def run_background():
+    """Reminders, and the phone sync while it's switched on. Runs until stopped."""
+    server, server_thread = None, None
+    try:
+        with open(notified_path(), encoding="utf-8") as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        seen = {}
+    lock = threading.Lock()
+
+    def answer(key, day, t, meds):
+        p = prefs()
+        title, body = reminder_text(t, meds, p["discreet"])
+        choice = notify(title, body, [("taken", tr("Taken")), ("later", tr("Later"))])
+        with lock:
+            if choice == "taken":
+                store = Store()
+                for m in meds:
+                    if not store.doses.get(slot_id(m["id"], day, t)):
+                        store.mark(m["id"], day, t, "taken")
+                store.save()
+            elif choice == "later":
+                seen[key] = {"until": time.time() + 10 * 60, "again": False}
+                save_seen()
+
+    def save_seen():
+        try:
+            cut = (today() - dt.timedelta(days=2)).isoformat()
+            for k in [k for k in seen if k < cut]:
+                del seen[k]
+            with open(notified_path(), "w", encoding="utf-8") as f:
+                json.dump(seen, f)
+        except OSError:
+            pass
+
+    while True:
+        p = prefs()
+        if p["sync"] and server is None and crypto_available():
+            try:
+                server = make_server(int(sync_config().get("port", SYNC_PORT)))
+                server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+                server_thread.start()
+                print("Dose sync listening on port %d" % server.server_address[1], flush=True)
+            except OSError as err:
+                print("Dose sync can't start: %s" % err, flush=True)
+                server = None
+        elif not p["sync"] and server is not None:
+            server.shutdown()
+            server.server_close()
+            server = None
+        if p["remind"]:
+            now = dt.datetime.now()
+            store = Store()
+            with lock:
+                todo = due_now(store, now, p["follow_up"], seen)
+                for key, t, meds, again in todo:
+                    seen[key] = {"until": 0, "again": again}
+                if todo:
+                    save_seen()
+            for key, t, meds, again in todo:
+                threading.Thread(target=answer, args=(key, now.date(), t, meds), daemon=True).start()
+        time.sleep(30)
+
+
+# ----------------------------------------------------------------- the window
+
+def run_app():
+    Adw.init()
+    app = _make_app_class()()
+    return app.run([sys.argv[0]])
+
+
+def main():
+    if "--version" in sys.argv:
+        print("Dose " + VERSION)
+        return 0
+    if "--background" in sys.argv:
+        run_background()
+        return 0
+    return run_app()
+
+
+CSS = """
+@define-color accent_bg_color #5c56b4;
+@define-color accent_color #5c56b4;
+@define-color accent_fg_color #ffffff;
+.dose-big { font-size: 22pt; font-weight: 800; }
+.dose-part { font-weight: 700; color: alpha(currentColor, 0.6); margin-top: 14px; margin-bottom: 4px; }
+.dose-time-head { font-size: 13pt; color: #5c56b4; font-variant-numeric: tabular-nums; }
+.dose-taken { color: #5c56b4; font-weight: 600; }
+.dose-skipped { color: alpha(currentColor, 0.55); }
+.dose-late { color: #cf3f3f; }
+.dose-low { background: alpha(#8e86d8, 0.16); border-radius: 12px; padding: 10px 14px; }
+.dose-dot { min-width: 12px; min-height: 12px; border-radius: 6px; }
+.dose-day { min-width: 40px; min-height: 40px; border-radius: 10px; padding: 0; }
+.dose-day-all { background: #6f67c9; color: white; }
+.dose-day-some { background: #c9c4f2; color: #2e2a63; }
+.dose-day-none { background: alpha(#eb9a94, 0.6); }
+.dose-day-today { box-shadow: inset 0 0 0 2px currentColor; }
+.dose-time spinbutton { font-variant-numeric: tabular-nums; }
+.dose-chip { border-radius: 99px; padding: 2px 10px; min-height: 0; }
+"""
+
+
+def make_label(text, css=None, xalign=0.0, wrap=False, **kw):
+    lab = Gtk.Label(label=text, xalign=xalign, wrap=wrap, **kw)
+    for c in (css or "").split():
+        lab.add_css_class(c)
+    return lab
+
+
+def clear(box):
+    child = box.get_first_child()
+    while child:
+        nxt = child.get_next_sibling()
+        box.remove(child)
+        child = nxt
+
+
+def med_title(med):
+    return med["name"] + (" " + med["strength"] if med["strength"] else "")
+
+
+class TimeEntry(Gtk.Box):
+    """Hours and minutes, two spin buttons."""
+
+    def __init__(self, value="08:00"):
+        super().__init__(spacing=4)
+        self.add_css_class("dose-time")
+        self.h = Gtk.SpinButton.new_with_range(0, 23, 1)
+        self.m = Gtk.SpinButton.new_with_range(0, 59, 5)
+        for spin in (self.h, self.m):
+            spin.set_wrap(True)
+            spin.set_numeric(True)
+            spin.connect("output", self.two_digits)
+        self.append(self.h)
+        self.append(make_label(":"))
+        self.append(self.m)
+        self.set_value(value)
+
+    @staticmethod
+    def two_digits(spin):
+        spin.set_text("%02d" % spin.get_value_as_int())
+        return True
+
+    def set_value(self, value):
+        self.h.set_value(int(value[:2]))
+        self.m.set_value(int(value[3:5]))
+
+    def get_value(self):
+        return "%02d:%02d" % (self.h.get_value_as_int(), self.m.get_value_as_int())
+
+
+class DateButton(Gtk.MenuButton):
+    """A date, chosen on a calendar in a popover."""
+
+    def __init__(self, day=None, empty_label=None):
+        super().__init__()
+        self.empty_label = empty_label
+        self.calendar = Gtk.Calendar()
+        pop = Gtk.Popover()
+        pop.set_child(self.calendar)
+        self.set_popover(pop)
+        self.day = None
+        self.calendar.connect("day-selected", self.on_pick)
+        self.set_day(day)
+
+    def set_day(self, day):
+        self.day = day
+        if day:
+            self.calendar.select_day(GLib.DateTime.new_local(day.year, day.month, day.day, 12, 0, 0))
+        self.set_label(fmt_date(day) if day else (self.empty_label or ""))
+
+    def on_pick(self, cal):
+        d = cal.get_date()
+        self.day = dt.date(d.get_year(), d.get_month(), d.get_day_of_month())
+        self.set_label(fmt_date(self.day))
+        self.get_popover().popdown()
+
+
+class DoseRow(Gtk.ListBoxRow):
+    """One scheduled dose: name, amount and time, and Taken / Skip, or what was done."""
+
+    def __init__(self, win, day, time_, med, dose):
+        super().__init__(activatable=False)
+        self.win, self.day, self.time, self.med = win, day, time_, med
+        box = Gtk.Box(spacing=12, margin_top=10, margin_bottom=10, margin_start=14, margin_end=10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+        text.append(make_label(med_title(med), "heading", ellipsize=3))
+        sub = fmt_amount(med["amount"], med["unit"])
+        if med["note"]:
+            sub += " · " + med["note"]
+        text.append(make_label(sub, "dim-label caption", ellipsize=3))
+        box.append(text)
+        if dose:
+            word = (tr("Taken at %s") if dose["status"] == "taken" else tr("Skipped")) % dose["at"] \
+                if dose["status"] == "taken" else tr("Skipped")
+            box.append(make_label(word, "dose-taken" if dose["status"] == "taken" else "dose-skipped"))
+            undo = Gtk.Button(icon_name="edit-undo-symbolic", valign=Gtk.Align.CENTER, tooltip_text=tr("Undo"))
+            undo.add_css_class("flat")
+            undo.connect("clicked", lambda *_: win.change(lambda s: s.unmark(dose["id"])))
+            box.append(undo)
+        else:
+            late = day < today() or (day == today() and dt.datetime.now().strftime("%H:%M") > time_)
+            if late:
+                box.append(make_label(tr("Not marked"), "dose-late caption"))
+            skip = Gtk.Button(label=tr("Skip"), valign=Gtk.Align.CENTER)
+            skip.connect("clicked", lambda *_: self.mark("skipped"))
+            taken = Gtk.Button(label=tr("Taken"), valign=Gtk.Align.CENTER)
+            taken.add_css_class("suggested-action")
+            taken.connect("clicked", lambda *_: self.mark("taken"))
+            other = Gtk.MenuButton(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
+                                   tooltip_text=tr("Taken at another time"))
+            other.add_css_class("flat")
+            pop = Gtk.Popover()
+            pbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10,
+                           margin_start=10, margin_end=10)
+            pbox.append(make_label(tr("Taken at"), "heading"))
+            entry = TimeEntry(time_)
+            pbox.append(entry)
+            ok = Gtk.Button(label=tr("Mark as taken"))
+            ok.add_css_class("suggested-action")
+            ok.connect("clicked", lambda *_: (pop.popdown(), self.mark("taken", entry.get_value())))
+            pbox.append(ok)
+            pop.set_child(pbox)
+            other.set_popover(pop)
+            for w in (skip, taken, other):
+                box.append(w)
+        self.set_child(box)
+
+    def mark(self, status, at=None):
+        if at is None and status == "taken" and self.day != today():
+            at = self.time     # a past day: the time it was due, unless you say otherwise
+        self.win.change(lambda s: s.mark(self.med["id"], self.day, self.time, status, at))
+
+
+class NeededRow(Gtk.ListBoxRow):
+    """A medicine taken only when needed: what you took on this day, and Take now."""
+
+    def __init__(self, win, day, med, doses):
+        super().__init__(activatable=False)
+        box = Gtk.Box(spacing=12, margin_top=10, margin_bottom=10, margin_start=14, margin_end=10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+        text.append(make_label(med_title(med), "heading", ellipsize=3))
+        if doses:
+            sub = ", ".join("%s (%s)" % (d["at"], fmt_amount(d["amount"], med["unit"])) for d in doses)
+        else:
+            sub = fmt_amount(med["amount"], med["unit"]) + " · " + tr("when needed")
+        text.append(make_label(sub, "dim-label caption", wrap=True))
+        box.append(text)
+        if doses:
+            undo = Gtk.Button(icon_name="edit-undo-symbolic", valign=Gtk.Align.CENTER,
+                              tooltip_text=tr("Remove the last one"))
+            undo.add_css_class("flat")
+            undo.connect("clicked", lambda *_: win.change(lambda s: s.unmark(doses[-1]["id"])))
+            box.append(undo)
+        take = Gtk.Button(label=tr("Take now") if day == today() else tr("Add"), valign=Gtk.Align.CENTER)
+        take.connect("clicked", lambda *_: win.change(
+            lambda s: s.take_now(med["id"], day=day, at=None if day == today() else "12:00")))
+        box.append(take)
+        self.set_child(box)
+
+
+def day_list(win, day, store):
+    """The rows of one day, grouped by part of the day, then the as-needed ones."""
+    col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    slots = store.slots(day)
+    times = {}
+    for t, med, dose in slots:
+        times.setdefault(t, []).append((t, med, dose))
+    for t in sorted(times):
+        col.append(make_label(t, "dose-part dose-time-head"))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        for t, med, dose in times[t]:
+            lb.append(DoseRow(win, day, t, med, dose))
+        col.append(lb)
+    needed = [m for m in store.active() if m["schedule"]["kind"] == "needed"]
+    extra = store.extra(day)
+    if needed or extra:
+        col.append(make_label(tr("When needed"), "dose-part"))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        ids = [m["id"] for m in needed] + [d["med"] for d in extra if d["med"] not in [m["id"] for m in needed]]
+        for mid in ids:
+            if mid in store.meds:
+                lb.append(NeededRow(win, day, store.meds[mid], [d for d in extra if d["med"] == mid]))
+        col.append(lb)
+    return col, bool(slots or needed or extra)
+
+
+class TodayPage(Gtk.ScrolledWindow):
+    def __init__(self, win):
+        super().__init__(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.win = win
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=18, margin_bottom=24,
+                           margin_start=18, margin_end=18)
+        clamp = Adw.Clamp(maximum_size=720)
+        clamp.set_child(self.box)
+        self.set_child(clamp)
+
+    def refresh(self):
+        clear(self.box)
+        store, day = self.win.store, today()
+        if not store.meds:
+            page = Adw.StatusPage(icon_name=APP_ID, title=tr("No medicines yet"),
+                                  description=tr("Add the medicines you take, and Dose will remind you "
+                                                 "when it's time and remember what you took."))
+            add = Gtk.Button(label=tr("Add a medicine"), halign=Gtk.Align.CENTER)
+            add.add_css_class("suggested-action")
+            add.add_css_class("pill")
+            add.connect("clicked", lambda *_: self.win.edit(None))
+            page.set_child(add)
+            self.box.append(page)
+            return
+        self.box.append(make_label(fmt_day(day, long=True), "dose-big"))
+        due, taken, skipped = store.day_counts(day)
+        if due:
+            line = tr("%d of %d taken") % (taken, due) if taken < due else tr("All taken today")
+            if skipped:
+                line += " · " + trn("%d skipped", "%d skipped", skipped) % skipped
+        else:
+            line = tr("Nothing scheduled today")
+        self.box.append(make_label(line, "dim-label"))
+        low = [m for m in store.active() if store.low(m)]
+        if low:
+            text = tr("Running low: %s") % ", ".join(
+                "%s (%s)" % (m["name"], trn("%d day left", "%d days left", store.days_left(m)) % store.days_left(m))
+                for m in low)
+            self.box.append(make_label(text, "dose-low", wrap=True, margin_top=10))
+        col, _any = day_list(self.win, day, store)
+        self.box.append(col)
+
+
+class MedicinesPage(Gtk.ScrolledWindow):
+    def __init__(self, win):
+        super().__init__(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.win = win
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=18, margin_bottom=24,
+                           margin_start=18, margin_end=18)
+        clamp = Adw.Clamp(maximum_size=720)
+        clamp.set_child(self.box)
+        self.set_child(clamp)
+
+    def row(self, med):
+        row = Adw.ActionRow(title=GLib.markup_escape_text(med_title(med)), activatable=True)
+        sub = "%s · %s" % (fmt_amount(med["amount"], med["unit"]), schedule_text(med))
+        if med["form"]:
+            sub = med["form"] + " · " + sub
+        row.set_subtitle(GLib.markup_escape_text(sub))
+        left = self.win.store.remaining(med)
+        if left is not None:
+            days = self.win.store.days_left(med)
+            text = tr("%s left") % ("%g" % left) + ("" if days is None else " · " + trn("%d day", "%d days", days) % days)
+            lab = make_label(text, "dose-late" if self.win.store.low(med) else "dim-label")
+            row.add_suffix(lab)
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda *_: self.win.edit(med["id"]))
+        return row
+
+    def refresh(self):
+        clear(self.box)
+        store = self.win.store
+        active, stopped = store.active(), store.archived()
+        head = Gtk.Box(spacing=8)
+        head.append(make_label(tr("Your medicines"), "dose-big", hexpand=True))
+        add = Gtk.Button(label=tr("Add a medicine"), valign=Gtk.Align.CENTER)
+        add.add_css_class("suggested-action")
+        add.connect("clicked", lambda *_: self.win.edit(None))
+        head.append(add)
+        self.box.append(head)
+        if not active:
+            self.box.append(make_label(tr("No medicines yet."), "dim-label", margin_top=12))
+        else:
+            lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, margin_top=12)
+            lb.add_css_class("boxed-list")
+            for med in active:
+                lb.append(self.row(med))
+            self.box.append(lb)
+        if stopped:
+            self.box.append(make_label(tr("No longer taken"), "dose-part"))
+            lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            lb.add_css_class("boxed-list")
+            for med in stopped:
+                lb.append(self.row(med))
+            self.box.append(lb)
+        self.box.append(make_label(tr("Medicine names: AIFA open data (CC BY 4.0). Dose doesn't give "
+                                      "medical advice: follow what your doctor prescribed."),
+                                   "dim-label caption", wrap=True, margin_top=18))
+
+
+class HistoryPage(Gtk.ScrolledWindow):
+    def __init__(self, win):
+        super().__init__(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.win = win
+        self.month = today().replace(day=1)
+        self.selected = today()
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=18, margin_bottom=24,
+                           margin_start=18, margin_end=18)
+        clamp = Adw.Clamp(maximum_size=720)
+        clamp.set_child(self.box)
+        self.set_child(clamp)
+
+    def shift(self, months):
+        y, mth = self.month.year, self.month.month + months
+        y, mth = y + (mth - 1) // 12, (mth - 1) % 12 + 1
+        self.month = dt.date(y, mth, 1)
+        self.refresh()
+
+    def pick(self, day):
+        self.selected = day
+        self.refresh()
+
+    def refresh(self):
+        clear(self.box)
+        store = self.win.store
+        head = Gtk.Box(spacing=6)
+        name = MONTHS[self.month.month - 1]
+        head.append(make_label("%s %d" % (name, self.month.year), "dose-big", hexpand=True))
+        for icon, step, sensitive in (("go-previous-symbolic", -1, True),
+                                      ("go-next-symbolic", 1, self.month < today().replace(day=1))):
+            b = Gtk.Button(icon_name=icon, valign=Gtk.Align.CENTER, sensitive=sensitive)
+            b.add_css_class("flat")
+            b.connect("clicked", lambda _b, s=step: self.shift(s))
+            head.append(b)
+        self.box.append(head)
+        grid = Gtk.Grid(column_spacing=6, row_spacing=6, halign=Gtk.Align.CENTER, margin_top=6)
+        for i, wd in enumerate(WEEKDAYS):
+            grid.attach(make_label(wd, "dim-label caption", xalign=0.5), i, 0, 1, 1)
+        day, row = self.month, 1
+        while day.month == self.month.month:
+            b = Gtk.Button(label=str(day.day))
+            b.add_css_class("dose-day")
+            due, taken, skipped = store.day_counts(day) if day <= today() else (0, 0, 0)
+            if due and day < today() or (day == today() and due and taken == due):
+                b.add_css_class("dose-day-all" if taken == due else "dose-day-some" if taken else "dose-day-none")
+            elif due and taken:
+                b.add_css_class("dose-day-some")
+            if day == today():
+                b.add_css_class("dose-day-today")
+            if day == self.selected:
+                b.add_css_class("suggested-action")
+            b.set_sensitive(day <= today())
+            b.connect("clicked", lambda _b, d=day: self.pick(d))
+            grid.attach(b, day.weekday(), row, 1, 1)
+            if day.weekday() == 6:
+                row += 1
+            day += dt.timedelta(days=1)
+        self.box.append(grid)
+        legend = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, margin_top=4)
+        for css, text in (("dose-day-all", tr("All taken")), ("dose-day-some", tr("Some")),
+                          ("dose-day-none", tr("None marked"))):
+            item = Gtk.Box(spacing=5)
+            dot = Gtk.Box(valign=Gtk.Align.CENTER)
+            dot.add_css_class("dose-dot")
+            dot.add_css_class(css)
+            item.append(dot)
+            item.append(make_label(text, "dim-label caption"))
+            legend.append(item)
+        self.box.append(legend)
+        self.box.append(make_label(fmt_day(self.selected, long=True, year=True), "title-3", margin_top=14))
+        col, anything = day_list(self.win, self.selected, store)
+        self.box.append(col if anything else make_label(tr("Nothing scheduled on this day."), "dim-label"))
+        changes = sorted(((h["date"], med, h) for med in store.meds.values() for h in med["history"]),
+                         key=lambda x: (x[0], x[1]["name"].lower()), reverse=True)
+        if changes:
+            self.box.append(make_label(tr("Changes"), "dose-part"))
+            lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            lb.add_css_class("boxed-list")
+            for date, med, h in changes[:60]:
+                kind = {"started": tr("Started"), "changed": tr("Dose changed"), "stopped": tr("Stopped"),
+                        "restarted": tr("Started again")}[h["kind"]]
+                detail = h.get("detail") or {}
+                text = ""
+                if detail and h["kind"] != "stopped":
+                    snap = dict(med, **{k: detail[k] for k in detail if k in med})
+                    snap["schedule"] = clean_schedule(detail.get("schedule"))
+                    text = "%s · %s" % (fmt_amount(clean_amount(detail.get("amount")), detail.get("unit", "pill")),
+                                        schedule_text(snap))
+                row = Adw.ActionRow(title=GLib.markup_escape_text("%s · %s" % (kind, med["name"])),
+                                    subtitle=GLib.markup_escape_text(
+                                        fmt_date(parse_day(date)) + (" · " + text if text else "")))
+                lb.append(row)
+            self.box.append(lb)
+
+
+class Editor(Gtk.Window):
+    """Add or change a medicine: search the list, then the dose, the schedule and the stock."""
+
+    def __init__(self, win, med_id):
+        super().__init__(transient_for=win, modal=True, default_width=560, default_height=760,
+                         title=tr("Add a medicine") if med_id is None else tr("Medicine"))
+        self.win = win
+        store = win.store
+        self.med = dict(store.meds[med_id]) if med_id else None
+        med = self.med or clean_medicine({"id": new_id(), "name": "?"})
+        header = Adw.HeaderBar()
+        cancel = Gtk.Button(label=tr("Cancel"))
+        cancel.connect("clicked", lambda *_: self.close())
+        save = Gtk.Button(label=tr("Save"))
+        save.add_css_class("suggested-action")
+        save.connect("clicked", self.on_save)
+        header.pack_start(cancel)
+        header.pack_end(save)
+        header.set_show_end_title_buttons(False)
+        self.set_titlebar(header)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=14, margin_bottom=20,
+                      margin_start=18, margin_end=18)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        scroll.set_child(col)
+        self.set_child(scroll)
+
+        # -- the medicine
+        if self.med is None:
+            self.search = Gtk.SearchEntry(placeholder_text=tr("Search by name or active ingredient"))
+            self.search.connect("search-changed", self.on_search)
+            col.append(make_label(tr("Medicine"), "dose-part"))
+            col.append(self.search)
+            self.results = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, visible=False)
+            self.results.add_css_class("boxed-list")
+            self.results.connect("row-activated", self.on_result)
+            col.append(self.results)
+            col.append(make_label(tr("Not in the list? Just type the name below."), "dim-label caption", margin_top=4))
+        else:
+            col.append(make_label(tr("Medicine"), "dose-part"))
+        form = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, margin_top=6)
+        form.add_css_class("boxed-list")
+        self.name = self.entry_row(form, tr("Name"), med["name"] if self.med else "")
+        self.strength = self.entry_row(form, tr("Strength"), med["strength"], tr("e.g. 50 mg"))
+        self.form = self.entry_row(form, tr("Form"), med["form"], tr("e.g. tablets"))
+        self.note = self.entry_row(form, tr("Note"), med["note"], tr("e.g. with food"))
+        self.ingredient = med["ingredient"]
+        col.append(form)
+
+        # -- how much
+        col.append(make_label(tr("Each time"), "dose-part"))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        row = Adw.ActionRow(title=tr("Amount"))
+        self.amount = Gtk.SpinButton.new_with_range(0.25, 1000, 0.25)
+        self.amount.set_digits(2)
+        self.amount.set_value(med["amount"])
+        self.amount.set_valign(Gtk.Align.CENTER)
+        self.unit = Gtk.DropDown.new_from_strings([u[2] for u in UNITS])
+        self.unit.set_selected(UNIT_KEYS.index(med["unit"]))
+        self.unit.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(self.amount)
+        row.add_suffix(self.unit)
+        lb.append(row)
+        col.append(lb)
+
+        # -- when
+        s = med["schedule"]
+        col.append(make_label(tr("When"), "dose-part"))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        row = Adw.ActionRow(title=tr("How often"))
+        self.kind = Gtk.DropDown.new_from_strings([k[1] for k in KINDS])
+        self.kind.set_selected([k[0] for k in KINDS].index(s["kind"]))
+        self.kind.set_valign(Gtk.Align.CENTER)
+        self.kind.connect("notify::selected", lambda *_: self.update_kind())
+        row.add_suffix(self.kind)
+        lb.append(row)
+        self.days_row = Adw.ActionRow(title=tr("Days"))
+        days_box = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
+        self.day_buttons = []
+        for i, wd in enumerate(WEEKDAYS):
+            b = Gtk.ToggleButton(label=wd[:2], active=(i + 1) in s["weekdays"])
+            b.add_css_class("dose-chip")
+            days_box.append(b)
+            self.day_buttons.append(b)
+        self.days_row.add_suffix(days_box)
+        lb.append(self.days_row)
+        self.every_row = Adw.ActionRow(title=tr("Every how many days"))
+        self.every = Gtk.SpinButton.new_with_range(2, 365, 1)
+        self.every.set_value(max(s["every"], 2))
+        self.every.set_valign(Gtk.Align.CENTER)
+        self.every_row.add_suffix(self.every)
+        lb.append(self.every_row)
+        self.times_row = Adw.ActionRow(title=tr("Times"))
+        self.times_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=8, margin_bottom=8)
+        self.times_row.add_suffix(self.times_box)
+        lb.append(self.times_row)
+        self.time_entries = []
+        for t in s["times"] or ["08:00"]:
+            self.add_time(t)
+        add_time = Gtk.Button(label=tr("Add a time"))
+        add_time.add_css_class("flat")
+        add_time.connect("clicked", lambda *_: self.add_time("20:00"))
+        self.add_time_row = Adw.ActionRow(title="")
+        self.add_time_row.add_suffix(add_time)
+        lb.append(self.add_time_row)
+        row = Adw.ActionRow(title=tr("From"))
+        self.start = DateButton(parse_day(s["start"]))
+        self.start.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(self.start)
+        lb.append(row)
+        row = Adw.ActionRow(title=tr("Until"), subtitle=tr("For a course, like an antibiotic"))
+        self.has_end = Gtk.Switch(active=bool(s["end"]), valign=Gtk.Align.CENTER)
+        self.end = DateButton(parse_day(s["end"]) or today() + dt.timedelta(days=6))
+        self.end.set_valign(Gtk.Align.CENTER)
+        self.has_end.connect("notify::active", lambda *_: self.end.set_visible(self.has_end.get_active()))
+        self.end.set_visible(bool(s["end"]))
+        row.add_suffix(self.end)
+        row.add_suffix(self.has_end)
+        lb.append(row)
+        col.append(lb)
+
+        # -- stock
+        col.append(make_label(tr("Stock"), "dose-part"))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        left = store.remaining(med) if self.med else None
+        row = Adw.ActionRow(title=tr("Count what's left"),
+                            subtitle=tr("Each dose you take is subtracted. Change the number when you buy more."))
+        self.counted = Gtk.Switch(active=left is not None, valign=Gtk.Align.CENTER)
+        row.add_suffix(self.counted)
+        lb.append(row)
+        self.count_row = Adw.ActionRow(title=tr("How many you have now"))
+        self.count = Gtk.SpinButton.new_with_range(0, 10000, 1)
+        self.count.set_digits(2)
+        self.count.set_value(left if left is not None else 30)
+        self.count.set_valign(Gtk.Align.CENTER)
+        self.count_left = left
+        self.count_row.add_suffix(self.count)
+        lb.append(self.count_row)
+        self.refill_row = Adw.ActionRow(title=tr("Tell me when it lasts fewer than"))
+        self.refill = Gtk.SpinButton.new_with_range(0, 90, 1)
+        self.refill.set_value(med["refillDays"])
+        self.refill.set_valign(Gtk.Align.CENTER)
+        self.refill_row.add_suffix(self.refill)
+        self.refill_row.add_suffix(make_label(tr("days")))
+        lb.append(self.refill_row)
+        self.counted.connect("notify::active", lambda *_: self.update_stock())
+        col.append(lb)
+
+        if self.med:
+            actions = Gtk.Box(spacing=8, margin_top=18, halign=Gtk.Align.END)
+            stop = Gtk.Button(label=tr("Start taking again") if self.med["archived"] else tr("Stopped taking it"))
+            stop.connect("clicked", self.on_archive)
+            delete = Gtk.Button(label=tr("Delete"))
+            delete.add_css_class("destructive-action")
+            delete.connect("clicked", self.on_delete)
+            actions.append(stop)
+            actions.append(delete)
+            col.append(actions)
+            col.append(make_label(tr("Stopped medicines keep their history. Delete removes the medicine "
+                                     "and every dose you marked."), "dim-label caption", wrap=True, margin_top=6))
+        self.update_kind()
+        self.update_stock()
+
+    @staticmethod
+    def entry_row(lb, title, value, hint=""):
+        row = Adw.ActionRow(title=title)
+        entry = Gtk.Entry(text=value or "", placeholder_text=hint, valign=Gtk.Align.CENTER, hexpand=True,
+                          width_chars=24)
+        row.add_suffix(entry)
+        lb.append(row)
+        return entry
+
+    def add_time(self, value):
+        line = Gtk.Box(spacing=6)
+        te = TimeEntry(value)
+        line.append(te)
+        rm = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text=tr("Remove"))
+        rm.add_css_class("flat")
+        line.append(rm)
+        self.time_entries.append(te)
+
+        def remove(*_):
+            if len(self.time_entries) > 1:
+                self.time_entries.remove(te)
+                self.times_box.remove(line)
+        rm.connect("clicked", remove)
+        self.times_box.append(line)
+
+    def kind_key(self):
+        return KINDS[self.kind.get_selected()][0]
+
+    def update_kind(self):
+        k = self.kind_key()
+        self.days_row.set_visible(k == "weekdays")
+        self.every_row.set_visible(k == "every")
+        self.times_row.set_visible(k != "needed")
+        self.add_time_row.set_visible(k != "needed")
+
+    def update_stock(self):
+        on = self.counted.get_active()
+        self.count_row.set_visible(on)
+        self.refill_row.set_visible(on)
+
+    def on_search(self, entry):
+        clear(self.results)
+        found = search_medicines(entry.get_text(), 30)
+        for name, strength, form, ingredient in found:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(name + (" " + strength if strength else "")),
+                                subtitle=GLib.markup_escape_text(form + (" · " + ingredient if ingredient else "")),
+                                activatable=True)
+            row.found = (name, strength, form, ingredient)
+            self.results.append(row)
+        self.results.set_visible(bool(found))
+
+    def on_result(self, _lb, row):
+        name, strength, form, ingredient = row.found
+        self.name.set_text(name)
+        self.strength.set_text(strength)
+        self.form.set_text(form)
+        self.ingredient = ingredient
+        low = form.lower()
+        unit = ("drop" if "gocce" in low else "capsule" if "capsul" in low else "sachet" if "bustin" in low
+                else "patch" if "cerott" in low else "ml" if any(w in low for w in ("sciroppo", "soluzione orale",
+                "sospensione orale")) else "puff" if "inala" in low else "injection" if "iniett" in low else "pill")
+        self.unit.set_selected(UNIT_KEYS.index(unit))
+        self.search.set_text("")
+        self.results.set_visible(False)
+
+    def collect(self):
+        name = self.name.get_text().strip()
+        if not name:
+            return None
+        base = self.med or {"id": new_id(), "history": []}
+        kind = self.kind_key()
+        stock = None
+        if self.counted.get_active():
+            count = round(self.count.get_value(), 2)
+            old = (self.med or {}).get("stock")
+            if old and self.count_left is not None and abs(count - self.count_left) < 0.001:
+                stock = old            # unchanged: keep counting from when it was set
+            else:
+                stock = {"count": count, "set": now_stamp()}
+        return dict(base, name=name, strength=self.strength.get_text().strip(), form=self.form.get_text().strip(),
+                    note=self.note.get_text().strip(), ingredient=self.ingredient,
+                    amount=round(self.amount.get_value(), 2), unit=UNIT_KEYS[self.unit.get_selected()],
+                    schedule={"kind": kind, "times": [t.get_value() for t in self.time_entries],
+                              "weekdays": [i + 1 for i, b in enumerate(self.day_buttons) if b.get_active()],
+                              "every": self.every.get_value_as_int(),
+                              "start": (self.start.day or today()).isoformat(),
+                              "end": self.end.day.isoformat() if self.has_end.get_active() and self.end.day else ""},
+                    stock=stock, refillDays=self.refill.get_value_as_int())
+
+    def on_save(self, *_):
+        med = self.collect()
+        if med is None:
+            self.name.grab_focus()
+            return
+        self.win.change(lambda s: s.put_medicine(med))
+        self.close()
+
+    def on_archive(self, *_):
+        archived = not self.med["archived"]
+        self.win.change(lambda s: s.set_archived(self.med["id"], archived))
+        self.close()
+
+    def on_delete(self, *_):
+        dialog = Gtk.Window(transient_for=self, modal=True, title=tr("Delete"), default_width=380)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_top=20, margin_bottom=20,
+                      margin_start=20, margin_end=20)
+        box.append(make_label(tr("Delete %s and every dose you marked for it? This can't be undone.") %
+                              self.med["name"], wrap=True))
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        no = Gtk.Button(label=tr("Cancel"))
+        no.connect("clicked", lambda *_: dialog.close())
+        yes = Gtk.Button(label=tr("Delete"))
+        yes.add_css_class("destructive-action")
+
+        def really(*_):
+            self.win.change(lambda s: s.delete_medicine(self.med["id"]))
+            dialog.close()
+            self.close()
+        yes.connect("clicked", really)
+        buttons.append(no)
+        buttons.append(yes)
+        box.append(buttons)
+        dialog.set_child(box)
+        dialog.present()
+
+
+class SyncWindow(Gtk.Window):
+    """Phone sync: on or off, the address and the token for the iPhone app."""
+
+    def __init__(self, win):
+        super().__init__(transient_for=win, modal=True, title=tr("Phone sync"), default_width=520)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=18, margin_bottom=20,
+                      margin_start=20, margin_end=20)
+        self.set_child(col)
+        col.append(make_label(tr("Dose on your iPhone syncs with this PC over your home Wi-Fi. Everything "
+                                 "is encrypted with the token below; nothing goes through the internet."),
+                              wrap=True))
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        row = Adw.ActionRow(title=tr("Phone sync"),
+                            subtitle=tr("Runs in the background, also when this window is closed."))
+        sw = Gtk.Switch(active=prefs()["sync"], valign=Gtk.Align.CENTER)
+        sw.connect("notify::active", self.on_switch)
+        row.add_suffix(sw)
+        lb.append(row)
+        cfg = sync_config()
+        host = socket.gethostname()
+        address = "%s.local:%d" % (host, cfg["port"])
+        ip = lan_address()
+        self.add_copy(lb, tr("Address"), address, ip and tr("or %s") % ("%s:%d" % (ip, cfg["port"])))
+        self.token_row = self.add_copy(lb, tr("Token"), cfg["token"], tr("Like a password: keep it to yourself."))
+        col.append(lb)
+        new = Gtk.Button(label=tr("New token"), halign=Gtk.Align.START)
+        new.connect("clicked", self.on_new)
+        col.append(new)
+        col.append(make_label(tr("On the iPhone: Dose → Settings → Sync with your PC, then paste the address "
+                                 "and the token."), "dim-label", wrap=True, margin_top=6))
+        status = tr("Not synced yet.")
+        try:
+            with open(sync_status_path(), encoding="utf-8") as f:
+                when, device, changes = (f.read().splitlines() + ["", "", "0"])[:3]
+            status = tr("Last sync: %s") % when + (" · " + device if device else "")
+        except OSError:
+            pass
+        col.append(make_label(status, "dim-label caption"))
+        if not crypto_available():
+            col.append(make_label(tr("Sync needs the python3-cryptography package."), "dose-late", wrap=True))
+        if not background_running():
+            col.append(make_label(tr("The background service isn't running, so the phone can't reach this PC. "
+                                     "Install Dose from the .deb, or run: dose --background"), "dose-late", wrap=True))
+
+    def add_copy(self, lb, title, value, sub=None):
+        row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value))
+        if sub:
+            row.set_subtitle(GLib.markup_escape_text(value + "\n" + sub))
+        b = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER, tooltip_text=tr("Copy"))
+        b.add_css_class("flat")
+        b.connect("clicked", lambda *_: self.get_clipboard().set(row.value))
+        row.value = value
+        row.add_suffix(b)
+        lb.append(row)
+        return row
+
+    def on_switch(self, sw, _p):
+        set_pref("sync", sw.get_active())
+
+    def on_new(self, *_):
+        cfg = new_sync_token()
+        self.token_row.value = cfg["token"]
+        self.token_row.set_subtitle(GLib.markup_escape_text(cfg["token"]))
+
+
+class PrefsWindow(Gtk.Window):
+    def __init__(self, win):
+        super().__init__(transient_for=win, modal=True, title=tr("Preferences"), default_width=480)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=18, margin_bottom=20,
+                      margin_start=20, margin_end=20)
+        self.set_child(col)
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        p = prefs()
+        for key, title, sub in (
+                ("remind", tr("Reminders on this PC"), tr("A notification when a dose is due. Your phone reminds you too.")),
+                ("follow_up", tr("Remind me again"), tr("Once more after 30 minutes, if the dose isn't marked.")),
+                ("discreet", tr("Discreet notifications"), tr("Say only \"Time for your 08:00 dose\", without "
+                                                              "the medicine's name."))):
+            row = Adw.ActionRow(title=title, subtitle=sub)
+            sw = Gtk.Switch(active=p[key], valign=Gtk.Align.CENTER)
+            sw.connect("notify::active", lambda s, _p, k=key: set_pref(k, s.get_active()))
+            row.add_suffix(sw)
+            lb.append(row)
+        row = Adw.ActionRow(title=tr("Language"), subtitle=tr("Applies the next time Dose opens."))
+        dd = Gtk.DropDown.new_from_strings([tr(name) for _k, name in LANGUAGES])
+        dd.set_selected([k for k, _n in LANGUAGES].index(p["language"]))
+        dd.set_valign(Gtk.Align.CENTER)
+        dd.connect("notify::selected", lambda d, _p: set_pref("language", LANGUAGES[d.get_selected()][0]))
+        row.add_suffix(dd)
+        lb.append(row)
+        col.append(lb)
+
+
+def background_running():
+    if not shutil.which("systemctl"):
+        return False
+    out = subprocess.run(["systemctl", "--user", "is-active", "dose-background.service"],
+                         capture_output=True, text=True)
+    return out.stdout.strip() == "active"
+
+
+def start_background():
+    """Turn on the user service from the .deb (reminders and sync) once, the first time Dose opens."""
+    cfg = load_config()
+    if cfg.get("service_set") or not shutil.which("systemctl"):
+        return
+    if not os.path.exists("/usr/lib/systemd/user/dose-background.service"):
+        return
+    subprocess.run(["systemctl", "--user", "enable", "--now", "dose-background.service"],
+                   capture_output=True)
+    cfg["service_set"] = True
+    save_config(cfg)
+
+
+class MainWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Dose", default_width=820, default_height=860)
+        self.store = Store()
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        header = Adw.HeaderBar()
+        self.stack = Adw.ViewStack(vexpand=True)
+        self.today = TodayPage(self)
+        self.meds = MedicinesPage(self)
+        self.history = HistoryPage(self)
+        self.stack.add_titled_with_icon(self.today, "today", tr("Today"), "alarm-symbolic")
+        self.stack.add_titled_with_icon(self.meds, "medicines", tr("Medicines"), "view-list-symbolic")
+        self.stack.add_titled_with_icon(self.history, "history", tr("History"), "x-office-calendar-symbolic")
+        switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
+        header.set_title_widget(switcher)
+        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=tr("Add a medicine"))
+        add.connect("clicked", lambda *_: self.edit(None))
+        header.pack_start(add)
+        menu = Gio.Menu()
+        menu.append(tr("Phone sync"), "win.sync")
+        menu.append(tr("Preferences"), "win.prefs")
+        menu.append(tr("About Dose"), "win.about")
+        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu))
+        for name, cb in (("sync", lambda *_: SyncWindow(self).present()),
+                         ("prefs", lambda *_: PrefsWindow(self).present()),
+                         ("about", lambda *_: self.about())):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", cb)
+            self.add_action(action)
+        root.append(header)
+        root.append(self.stack)
+        self.set_content(root)
+        self.refresh()
+        GLib.timeout_add_seconds(2, self.watch)
+        self.minute = dt.datetime.now().strftime("%H:%M")
+
+    def watch(self):
+        """Pick up changes from the phone or a reminder, and the clock passing a dose time."""
+        now = dt.datetime.now().strftime("%H:%M")
+        if self.store.changed_on_disk():
+            self.store.load()
+            self.refresh()
+        elif now != self.minute:
+            self.today.refresh()
+        self.minute = now
+        return True
+
+    def refresh(self):
+        self.today.refresh()
+        self.meds.refresh()
+        self.history.refresh()
+
+    def change(self, fn):
+        if self.store.changed_on_disk():
+            self.store.load()
+        fn(self.store)
+        try:
+            self.store.save()
+        except OSError as err:
+            print("Dose: could not save: %s" % err, file=sys.stderr)
+        self.refresh()
+
+    def edit(self, med_id):
+        Editor(self, med_id).present()
+
+    def about(self):
+        about = Adw.AboutWindow(transient_for=self, application_name="Dose", application_icon=APP_ID,
+                                version=VERSION, website="https://github.com/Akii-G/dose-tracker",
+                                comments=tr("Your medicines, quietly. The sister app of Sottovoce."),
+                                license_type=Gtk.License.MIT_X11) if hasattr(Adw, "AboutWindow") else None
+        if about:
+            about.present()
+
+
+def _make_app_class():
+    class _App(Adw.Application):
+        def __init__(self):
+            super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def do_activate(self):
+            win = self.get_active_window()
+            if not win:
+                css = Gtk.CssProvider()
+                try:
+                    css.load_from_string(CSS)          # GTK 4.12 and newer
+                except AttributeError:
+                    css.load_from_data(CSS.encode())
+                Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                          Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                threading.Thread(target=start_background, daemon=True).start()
+                win = MainWindow(self)
+            win.present()
+    return _App
+
+
+if __name__ == "__main__":
+    sys.exit(main())

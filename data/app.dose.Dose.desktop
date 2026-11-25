@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Dose
+GenericName=Medicine tracker
+GenericName[it]=Promemoria farmaci
+Comment=Your medicines, quietly: reminders and what you took
+Comment[it]=I tuoi farmaci, con calma: promemoria e cosa hai preso
+Exec=dose
+Icon=app.dose.Dose
+Terminal=false
+Categories=Utility;MedicalSoftware;
+Keywords=medicine;medication;pill;reminder;farmaci;pillola;promemoria;
+StartupNotify=true

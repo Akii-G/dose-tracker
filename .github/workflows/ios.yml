@@ -1,0 +1,82 @@
+name: iOS app
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", "data/**", "tools/build_medicines.py", ".github/workflows/ios.yml"]
+  release:
+    types: [published]   # every release gets the iPhone app attached
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode on the runner
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Check encryption matches the PC
+        run: |
+          swiftc -O -o crypto-check ios/Dose/SyncCrypto.swift ios/CryptoCheck/main.swift
+          ./crypto-check
+
+      - name: Refresh the medicine list from AIFA
+        continue-on-error: true      # if AIFA is down, build with the list in the repository
+        run: python3 tools/build_medicines.py
+
+      - name: Install XcodeGen and ldid
+        run: brew install xcodegen ldid
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Dose.xcodeproj -scheme Dose -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/Dose.app || (grep -B2 -A6 "error:" build.log | head -200; exit 1)
+
+      - name: Package the .ipa
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Dose.app Payload/
+          # A placeholder signature; SideStore, AltStore or Feather re-sign it when installing.
+          ldid -S Payload/Dose.app/Dose
+          VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
+          IPA="Dose-iPhone-$VERSION.ipa"
+          zip -qry "$IPA" Payload
+          ls -la "$IPA"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dose-iPhone-ipa
+          path: ios/Dose-iPhone-*.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: ios/build.log
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        working-directory: ios
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "$IPA" --clobber --repo "${{ github.repository }}"

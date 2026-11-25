@@ -1,0 +1,502 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Mon"
+msgstr "Lun"
+
+msgid "Tue"
+msgstr "Mar"
+
+msgid "Wed"
+msgstr "Mer"
+
+msgid "Thu"
+msgstr "Gio"
+
+msgid "Fri"
+msgstr "Ven"
+
+msgid "Sat"
+msgstr "Sab"
+
+msgid "Sun"
+msgstr "Dom"
+
+msgid "Monday"
+msgstr "Lunedì"
+
+msgid "Tuesday"
+msgstr "Martedì"
+
+msgid "Wednesday"
+msgstr "Mercoledì"
+
+msgid "Thursday"
+msgstr "Giovedì"
+
+msgid "Friday"
+msgstr "Venerdì"
+
+msgid "Saturday"
+msgstr "Sabato"
+
+msgid "Sunday"
+msgstr "Domenica"
+
+msgid "January"
+msgstr "Gennaio"
+
+msgid "February"
+msgstr "Febbraio"
+
+msgid "March"
+msgstr "Marzo"
+
+msgid "April"
+msgstr "Aprile"
+
+msgid "May"
+msgstr "Maggio"
+
+msgid "June"
+msgstr "Giugno"
+
+msgid "July"
+msgstr "Luglio"
+
+msgid "August"
+msgstr "Agosto"
+
+msgid "September"
+msgstr "Settembre"
+
+msgid "October"
+msgstr "Ottobre"
+
+msgid "November"
+msgstr "Novembre"
+
+msgid "December"
+msgstr "Dicembre"
+
+msgid "pill"
+msgstr "compressa"
+
+msgid "pills"
+msgstr "compresse"
+
+msgid "capsule"
+msgstr "capsula"
+
+msgid "capsules"
+msgstr "capsule"
+
+msgid "drop"
+msgstr "goccia"
+
+msgid "drops"
+msgstr "gocce"
+
+msgid "ml"
+msgstr "ml"
+
+msgid "puff"
+msgstr "spruzzo"
+
+msgid "puffs"
+msgstr "spruzzi"
+
+msgid "sachet"
+msgstr "bustina"
+
+msgid "sachets"
+msgstr "bustine"
+
+msgid "patch"
+msgstr "cerotto"
+
+msgid "patches"
+msgstr "cerotti"
+
+msgid "injection"
+msgstr "iniezione"
+
+msgid "injections"
+msgstr "iniezioni"
+
+msgid "application"
+msgstr "applicazione"
+
+msgid "applications"
+msgstr "applicazioni"
+
+msgid "Every day"
+msgstr "Ogni giorno"
+
+msgid "Some days of the week"
+msgstr "Alcuni giorni della settimana"
+
+msgid "Every few days"
+msgstr "Ogni tot giorni"
+
+msgid "Only when needed"
+msgstr "Solo al bisogno"
+
+msgid "When needed"
+msgstr "Al bisogno"
+
+msgid "%s and %s"
+msgstr "%s e %s"
+
+msgid "%s at %s"
+msgstr "%s alle %s"
+
+msgid "Every %d days at %s"
+msgstr "Ogni %d giorni alle %s"
+
+msgid "Every day at %s"
+msgstr "Ogni giorno alle %s"
+
+msgid "until %s"
+msgstr "fino al %s"
+
+msgid "Phone sync is switched off in Dose on your PC."
+msgstr "La sincronizzazione col telefono è spenta in Dose sul PC."
+
+msgid "Sync needs the python3-cryptography package on the PC."
+msgstr "Per sincronizzare serve il pacchetto python3-cryptography sul PC."
+
+msgid "Empty request, or too large."
+msgstr "Richiesta vuota o troppo grande."
+
+msgid "The token doesn't match. Copy it again from Dose on your PC."
+msgstr "Il token non corrisponde. Copialo di nuovo da Dose sul PC."
+
+msgid "Dose"
+msgstr "Dose"
+
+msgid "Time for your %s dose"
+msgstr "È l'ora della dose delle %s"
+
+msgid "%s · time for your medicine"
+msgstr "%s · è l'ora del farmaco"
+
+msgid "Taken"
+msgstr "Presa"
+
+msgid "Later"
+msgstr "Più tardi"
+
+msgid "Taken at %s"
+msgstr "Presa alle %s"
+
+msgid "Skipped"
+msgstr "Saltata"
+
+msgid "Undo"
+msgstr "Annulla"
+
+msgid "Not marked"
+msgstr "Non segnata"
+
+msgid "Skip"
+msgstr "Salta"
+
+msgid "Taken at another time"
+msgstr "Presa a un'altra ora"
+
+msgid "Taken at"
+msgstr "Presa alle"
+
+msgid "Mark as taken"
+msgstr "Segna come presa"
+
+msgid "when needed"
+msgstr "al bisogno"
+
+msgid "Remove the last one"
+msgstr "Togli l'ultima"
+
+msgid "Take now"
+msgstr "Prendi ora"
+
+msgid "Add"
+msgstr "Aggiungi"
+
+msgid "No medicines yet"
+msgstr "Ancora nessun farmaco"
+
+msgid "Add the medicines you take, and Dose will remind you when it's time and remember what you took."
+msgstr "Aggiungi i farmaci che prendi: Dose ti ricorderà quando è il momento e terrà conto di cosa hai preso."
+
+msgid "All taken today"
+msgstr "Tutto preso oggi"
+
+msgid "%d of %d taken"
+msgstr "%d su %d prese"
+
+msgid "Nothing scheduled today"
+msgstr "Niente in programma oggi"
+
+msgid "Running low: %s"
+msgstr "Stanno finendo: %s"
+
+msgid "%s left"
+msgstr "ne restano %s"
+
+msgid "Your medicines"
+msgstr "I tuoi farmaci"
+
+msgid "Add a medicine"
+msgstr "Aggiungi un farmaco"
+
+msgid "No medicines yet."
+msgstr "Ancora nessun farmaco."
+
+msgid "No longer taken"
+msgstr "Non più presi"
+
+msgid "Medicine names: AIFA open data (CC BY 4.0). Dose doesn't give medical advice: follow what your doctor prescribed."
+msgstr "Nomi dei farmaci: open data AIFA (CC BY 4.0). Dose non dà consigli medici: segui quello che ti ha prescritto il medico."
+
+msgid "All taken"
+msgstr "Tutto preso"
+
+msgid "Some"
+msgstr "In parte"
+
+msgid "None marked"
+msgstr "Nessuna segnata"
+
+msgid "Nothing scheduled on this day."
+msgstr "Niente in programma in questo giorno."
+
+msgid "Changes"
+msgstr "Cambiamenti"
+
+msgid "Started"
+msgstr "Iniziato"
+
+msgid "Dose changed"
+msgstr "Dose cambiata"
+
+msgid "Stopped"
+msgstr "Sospeso"
+
+msgid "Started again"
+msgstr "Ripreso"
+
+msgid "Medicine"
+msgstr "Farmaco"
+
+msgid "Cancel"
+msgstr "Annulla"
+
+msgid "Save"
+msgstr "Salva"
+
+msgid "Search by name or active ingredient"
+msgstr "Cerca per nome o principio attivo"
+
+msgid "Not in the list? Just type the name below."
+msgstr "Non è nell'elenco? Scrivi il nome qui sotto."
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Strength"
+msgstr "Dosaggio"
+
+msgid "e.g. 50 mg"
+msgstr "es. 50 mg"
+
+msgid "Form"
+msgstr "Forma"
+
+msgid "e.g. tablets"
+msgstr "es. compresse"
+
+msgid "Note"
+msgstr "Nota"
+
+msgid "e.g. with food"
+msgstr "es. a stomaco pieno"
+
+msgid "Each time"
+msgstr "Ogni volta"
+
+msgid "Amount"
+msgstr "Quantità"
+
+msgid "When"
+msgstr "Quando"
+
+msgid "How often"
+msgstr "Ogni quanto"
+
+msgid "Days"
+msgstr "Giorni"
+
+msgid "Every how many days"
+msgstr "Ogni quanti giorni"
+
+msgid "Times"
+msgstr "Orari"
+
+msgid "Add a time"
+msgstr "Aggiungi un orario"
+
+msgid "From"
+msgstr "Dal"
+
+msgid "Until"
+msgstr "Fino al"
+
+msgid "For a course, like an antibiotic"
+msgstr "Per una cura a termine, come un antibiotico"
+
+msgid "Stock"
+msgstr "Scorta"
+
+msgid "Count what's left"
+msgstr "Conta quanti ne restano"
+
+msgid "Each dose you take is subtracted. Change the number when you buy more."
+msgstr "Ogni dose presa viene sottratta. Cambia il numero quando ne compri altri."
+
+msgid "How many you have now"
+msgstr "Quanti ne hai adesso"
+
+msgid "Tell me when it lasts fewer than"
+msgstr "Avvisami quando bastano per meno di"
+
+msgid "days"
+msgstr "giorni"
+
+msgid "Start taking again"
+msgstr "Riprendi"
+
+msgid "Stopped taking it"
+msgstr "Non lo prendo più"
+
+msgid "Stopped medicines keep their history. Delete removes the medicine and every dose you marked."
+msgstr "I farmaci sospesi mantengono la loro storia. Elimina toglie il farmaco e tutte le dosi segnate."
+
+msgid "Remove"
+msgstr "Togli"
+
+msgid "Delete"
+msgstr "Elimina"
+
+msgid "Delete %s and every dose you marked for it? This can't be undone."
+msgstr "Eliminare %s e tutte le dosi segnate? Non si può annullare."
+
+msgid "Dose on your iPhone syncs with this PC over your home Wi-Fi. Everything is encrypted with the token below; nothing goes through the internet."
+msgstr "Dose sull'iPhone si sincronizza con questo PC tramite il Wi-Fi di casa. Tutto è cifrato con il token qui sotto; niente passa da internet."
+
+msgid "Runs in the background, also when this window is closed."
+msgstr "Funziona in sottofondo, anche con questa finestra chiusa."
+
+msgid "Address"
+msgstr "Indirizzo"
+
+msgid "or %s"
+msgstr "oppure %s"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Like a password: keep it to yourself."
+msgstr "Come una password: tienilo per te."
+
+msgid "New token"
+msgstr "Nuovo token"
+
+msgid "On the iPhone: Dose → Settings → Sync with your PC, then paste the address and the token."
+msgstr "Sull'iPhone: Dose → Impostazioni → Sincronizza con il PC, poi incolla l'indirizzo e il token."
+
+msgid "Not synced yet."
+msgstr "Non ancora sincronizzato."
+
+msgid "Last sync: %s"
+msgstr "Ultima sincronizzazione: %s"
+
+msgid "Sync needs the python3-cryptography package."
+msgstr "Per sincronizzare serve il pacchetto python3-cryptography."
+
+msgid "The background service isn't running, so the phone can't reach this PC. Install Dose from the .deb, or run: dose --background"
+msgstr "Il servizio in sottofondo non è attivo, quindi il telefono non raggiunge questo PC. Installa Dose dal .deb, oppure esegui: dose --background"
+
+msgid "Copy"
+msgstr "Copia"
+
+msgid "Reminders on this PC"
+msgstr "Promemoria su questo PC"
+
+msgid "A notification when a dose is due. Your phone reminds you too."
+msgstr "Una notifica quando è l'ora di una dose. Anche il telefono te lo ricorda."
+
+msgid "Remind me again"
+msgstr "Ricordamelo di nuovo"
+
+msgid "Once more after 30 minutes, if the dose isn't marked."
+msgstr "Ancora una volta dopo 30 minuti, se la dose non è segnata."
+
+msgid "Discreet notifications"
+msgstr "Notifiche discrete"
+
+msgid "Say only \"Time for your 08:00 dose\", without the medicine's name."
+msgstr "Dicono solo «È l'ora della dose delle 08:00», senza il nome del farmaco."
+
+msgid "Language"
+msgstr "Lingua"
+
+msgid "Applies the next time Dose opens."
+msgstr "Vale dalla prossima apertura di Dose."
+
+msgid "Today"
+msgstr "Oggi"
+
+msgid "Medicines"
+msgstr "Farmaci"
+
+msgid "History"
+msgstr "Storico"
+
+msgid "Phone sync"
+msgstr "Sincronizza col telefono"
+
+msgid "Preferences"
+msgstr "Preferenze"
+
+msgid "About Dose"
+msgstr "Informazioni su Dose"
+
+msgid "Your medicines, quietly. The sister app of Sottovoce."
+msgstr "I tuoi farmaci, con calma. L'app sorella di Sottovoce."
+
+msgid "Automatic"
+msgstr "Automatica"
+
+msgid "English"
+msgstr "English"
+
+msgid "Italiano"
+msgstr "Italiano"
+
+msgid "%d skipped"
+msgid_plural "%d skipped"
+msgstr[0] "%d saltata"
+msgstr[1] "%d saltate"
+
+msgid "%d day left"
+msgid_plural "%d days left"
+msgstr[0] "%d giorno rimasto"
+msgstr[1] "%d giorni rimasti"
+
+msgid "%d day"
+msgid_plural "%d days"
+msgstr[0] "%d giorno"
+msgstr[1] "%d giorni"

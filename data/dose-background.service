@@ -1,0 +1,12 @@
+[Unit]
+Description=Dose: medicine reminders and phone sync
+After=graphical-session.target network.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/dose --background
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

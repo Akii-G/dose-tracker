@@ -1,0 +1,7 @@
+build/
+*.deb
+__pycache__/
+ios/*.xcodeproj
+ios/build*/
+ios/Payload/
+*.ipa
