@@ -3,17 +3,23 @@
 **Your medicines, quietly.** The sister app of [Sottovoce](https://github.com/Akii-G/sottovoce).
 
 Dose keeps the medicines you take and their schedules, reminds you when it's time, and
-remembers what you took. Your data stays on your devices: the iPhone app syncs with your PC
-over your home Wi-Fi, encrypted. No account, no cloud, no ads.
+remembers what you took. Your data stays on your devices: the iPhone and Android apps sync
+with your PC (Linux or Windows) over your home Wi-Fi, encrypted. No account, no cloud, no ads.
 
 <p>
 <img src="docs/screenshots/today.png" alt="Today" width="49%">
 <img src="docs/screenshots/history.png" alt="History" width="49%">
 </p>
+<p>
+<img src="docs/screenshots/android-today.png" alt="Today on Android" width="24%">
+<img src="docs/screenshots/android-medicines.png" alt="Medicines on Android" width="24%">
+<img src="docs/screenshots/android-history.png" alt="History on Android" width="24%">
+<img src="docs/screenshots/android-editor.png" alt="A medicine on Android" width="24%">
+</p>
 
 ## What it does
 
-- **Today**: the day's doses, by morning, afternoon, evening and night. Tap **Taken** or
+- **Today**: the day's doses, grouped by time (08:00, 21:00…). Tap **Taken** or
   **Skip**; a dose you forgot stays visible, and you can mark it with the time you really took
   it. Medicines you take **only when needed** have a **Take now** button.
 - **Medicines**: add one by searching the list of medicines authorised in Italy (name, strength
@@ -35,10 +41,17 @@ doctor prescribed.
 **Linux (Pop!_OS, Ubuntu, Debian)**: download `dose_<version>_all.deb` from the
 [releases](https://github.com/Akii-G/dose-tracker/releases), then:
 
-    sudo apt install ./dose_1.0.1_all.deb
+    sudo apt install ./dose_1.1.0_all.deb
 
 The reminders and the phone sync run in the background (the `dose-background` user service),
 also when the window is closed.
+
+**Windows 10 and 11**: download `Dose-Setup-<version>.exe` and run it. The reminders and the
+phone sync run in the background from when you log in; the installer opens port 8766 for phones
+on private (home) networks only.
+
+**Android**: download `Dose-Android-<version>.apk` and open it on the phone (allow installing
+from your browser or file manager when Android asks).
 
 **iPhone**: download `Dose-iPhone-<version>.ipa` and install it with a sideloading app
 (AltStore, SideStore, Feather or similar). Dose isn't on the App Store.
@@ -46,13 +59,16 @@ also when the window is closed.
 ## Sync
 
 On the PC: ☰ → **Phone sync**, switch it on, and copy the address and the token. On the
-iPhone: **Settings → Sync with your PC**, paste them, and tap **Test the connection**. After
+phone: **Settings → Sync with your PC**, paste them, and tap **Test the connection**. After
 that it syncs by itself whenever something changes. Everything is encrypted with the token
 (AES-256-GCM); the token itself never crosses the network. The format is in
 [docs/FORMAT.md](docs/FORMAT.md).
 
 If the phone can't reach the PC, allow port 8766 on the PC's firewall
-(`sudo ufw allow 8766/tcp`).
+(`sudo ufw allow 8766/tcp` on Linux; the Windows installer does it for you).
+
+Sottovoce on the same PC reads Dose's medicines and doses for its doctor report, on Linux and on
+Windows.
 
 ## Medicine list
 

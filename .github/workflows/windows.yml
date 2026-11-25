@@ -1,0 +1,142 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/dose", "po/**", "data/**", "packaging/windows/**", "test/**", ".github/workflows/windows.yml"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # attach the installer to a release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-python-cryptography
+            mingw-w64-ucrt-x86_64-pyinstaller
+            mingw-w64-ucrt-x86_64-pyinstaller-hooks-contrib
+
+      - name: Tests (the same app logic, on Windows)
+        env:
+          GSK_RENDERER: cairo
+        run: |
+          set -e
+          for t in test/test_model.py test/test_sync.py test/test_windows.py; do
+            echo "== $t"; python "$t"
+          done
+
+      - name: Try the app from source (before bundling)
+        run: |
+          export DOSE_DATA_DIR=$(mktemp -d) DOSE_CONFIG_DIR=$(mktemp -d)
+          echo '{"service_set": true}' > "$DOSE_CONFIG_DIR/config.json"
+          python src/dose > src-out.txt 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 $pid 2>/dev/null; then echo "running from source: OK"; kill $pid; else echo "closed by itself"; fi
+          cat src-out.txt
+
+      - name: Bundle with PyInstaller
+        run: |
+          set -e
+          mkdir -p build
+          cp src/dose build/dose.py
+          pyinstaller --noconfirm --clean --distpath dist --workpath build/pyinstaller packaging/windows/dose.spec
+          ls dist/Dose | head -50
+
+      - name: Check the bundled app (the window, in Italian, English and Tahoe)
+        shell: pwsh
+        run: |
+          $env:DOSE_DATA_DIR = "$env:RUNNER_TEMP\dose-data"
+          $env:DOSE_CONFIG_DIR = "$env:RUNNER_TEMP\dose-config"
+          New-Item -ItemType Directory -Force $env:DOSE_DATA_DIR, $env:DOSE_CONFIG_DIR | Out-Null
+          $v = & dist\Dose\Dose-console.exe --version
+          "version: $v"
+          foreach ($look in "it", "en", "tahoe") {
+            $style = $(if ($look -eq "tahoe") { "tahoe" } else { "default" })
+            "{""service_set"": true, ""style"": ""$style""}" | Set-Content -Encoding utf8 "$env:DOSE_CONFIG_DIR\config.json"
+            $env:DOSE_LANG = $(if ($look -eq "en") { "en" } else { "it" })
+            $app = Start-Process dist\Dose\Dose.exe -PassThru -RedirectStandardError "$env:RUNNER_TEMP\err-$look.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\out-$look.txt"
+            Start-Sleep -Seconds 12
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            New-Item -ItemType Directory -Force screenshots | Out-Null
+            $bmp.Save("screenshots\windows-$look.png")
+            if ($app.HasExited) { "exit code: $($app.ExitCode)"; Get-Content "$env:RUNNER_TEMP\err-$look.txt", "$env:RUNNER_TEMP\out-$look.txt" -ErrorAction SilentlyContinue; $failed = $true; continue }
+            Stop-Process -Id $app.Id -Force
+            Start-Sleep -Seconds 2
+          }
+          if ($failed) { throw "Dose closed by itself" }
+
+      - name: Make the installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path src\dose -Pattern '^VERSION = "(.*)"').Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DVersion=$version" packaging\windows\dose.iss
+          if ($LASTEXITCODE) { throw "ISCC failed" }
+          Get-ChildItem dist\*.exe
+
+      - name: Try the installer (install, background part with sync, a dose link, uninstall)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\Dose-Setup-*.exe).FullName
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          $exe = "$env:ProgramFiles\Dose\Dose.exe"
+          if (!(Test-Path $exe)) { throw "not installed" }
+          if (!(Get-NetFirewallRule -DisplayName "Dose phone sync" -ErrorAction SilentlyContinue)) { throw "no firewall rule" }
+          if (!(Test-Path "Registry::HKEY_CLASSES_ROOT\dose")) { throw "dose: not registered" }
+          Get-Process Dose -ErrorAction SilentlyContinue | Stop-Process -Force   # the window opened by the installer
+          $env:DOSE_DATA_DIR = "$env:RUNNER_TEMP\installed-data"
+          $env:DOSE_CONFIG_DIR = "$env:RUNNER_TEMP\installed-config"
+          New-Item -ItemType Directory -Force $env:DOSE_DATA_DIR, $env:DOSE_CONFIG_DIR | Out-Null
+          '{"service_set": true, "sync": true}' | Set-Content -Encoding utf8 "$env:DOSE_CONFIG_DIR\config.json"
+          $r = Start-Process $exe -ArgumentList "--background" -PassThru
+          Start-Sleep -Seconds 8
+          if (!(Test-NetConnection 127.0.0.1 -Port 8766 -InformationLevel Quiet)) { throw "the sync isn't listening" }
+          if (!(Test-Path "$env:DOSE_DATA_DIR\background.pid")) { throw "no pid file" }
+          "background part answers on 8766"
+          Stop-Process -Id $r.Id -Force
+          Start-Process "$env:ProgramFiles\Dose\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path $exe) { throw "still installed after uninstall" }
+          if (Get-NetFirewallRule -DisplayName "Dose phone sync" -ErrorAction SilentlyContinue) { throw "firewall rule left behind" }
+          "install and uninstall OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dose-Windows-installer
+          path: dist/Dose-Setup-*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dose-Windows-screenshots
+          path: screenshots/
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist\Dose-Setup-*.exe).FullName --clobber -R "${{ github.repository }}"

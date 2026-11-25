@@ -5,3 +5,8 @@ ios/*.xcodeproj
 ios/build*/
 ios/Payload/
 *.ipa
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+*.jks

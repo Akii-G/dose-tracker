@@ -393,8 +393,8 @@ msgstr "Elimina"
 msgid "Delete %s and every dose you marked for it? This can't be undone."
 msgstr "Eliminare %s e tutte le dosi segnate? Non si può annullare."
 
-msgid "Dose on your iPhone syncs with this PC over your home Wi-Fi. Everything is encrypted with the token below; nothing goes through the internet."
-msgstr "Dose sull'iPhone si sincronizza con questo PC tramite il Wi-Fi di casa. Tutto è cifrato con il token qui sotto; niente passa da internet."
+msgid "Dose on your phone (iPhone or Android) syncs with this PC over your home Wi-Fi. Everything is encrypted with the token below; nothing goes through the internet."
+msgstr "Dose sul telefono (iPhone o Android) si sincronizza con questo PC tramite il Wi-Fi di casa. Tutto è cifrato con il token qui sotto; niente passa da internet."
 
 msgid "Runs in the background, also when this window is closed."
 msgstr "Funziona in sottofondo, anche con questa finestra chiusa."
@@ -414,8 +414,8 @@ msgstr "Come una password: tienilo per te."
 msgid "New token"
 msgstr "Nuovo token"
 
-msgid "On the iPhone: Dose → Settings → Sync with your PC, then paste the address and the token."
-msgstr "Sull'iPhone: Dose → Impostazioni → Sincronizza con il PC, poi incolla l'indirizzo e il token."
+msgid "On the phone: Dose → Settings → Sync with your PC, then paste the address and the token."
+msgstr "Sul telefono: Dose → Impostazioni → Sincronizza con il PC, poi incolla l'indirizzo e il token."
 
 msgid "Not synced yet."
 msgstr "Non ancora sincronizzato."
@@ -509,3 +509,6 @@ msgstr "Tahoe (stile macOS)"
 
 msgid "Style"
 msgstr "Stile"
+
+msgid "The background part of Dose isn't running, so the phone can't reach this PC. Open Dose again, or reinstall it"
+msgstr "La parte di Dose in background non è attiva, quindi il telefono non può raggiungere questo PC. Riapri Dose, o reinstallalo"

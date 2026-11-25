@@ -2,7 +2,7 @@
 """Dose — your medicines, quietly. The sister app of Sottovoce.
 
 Keeps your medicines and their schedules, reminds you when it's time, and remembers what
-you took. Everything stays in one plain JSON file on your devices; the iPhone app syncs with
+you took. Everything stays in one plain JSON file on your devices; the phone apps sync with
 this PC over your home Wi-Fi, encrypted.
 
     dose                    the window
@@ -28,7 +28,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 APP_ID = "app.dose.Dose"
 SYNC_PORT = 8766
 IS_WINDOWS = sys.platform == "win32"
@@ -42,13 +42,22 @@ LANGUAGES = [("auto", "Automatic"), ("en", "English"), ("it", "Italiano")]
 
 
 def config_dir():
-    return os.environ.get("DOSE_CONFIG_DIR") or os.path.join(
-        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "dose")
+    """~/.config/dose; on Windows %LOCALAPPDATA%\\Dose\\settings."""
+    if os.environ.get("DOSE_CONFIG_DIR"):
+        return os.environ["DOSE_CONFIG_DIR"]
+    if IS_WINDOWS:
+        return os.path.join(GLib.get_user_data_dir(), "Dose", "settings")
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "dose")
 
 
 def data_dir():
-    path = os.environ.get("DOSE_DATA_DIR") or os.path.join(
-        os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "dose")
+    """~/.local/share/dose; on Windows %LOCALAPPDATA%\\Dose (where Sottovoce looks for it)."""
+    if os.environ.get("DOSE_DATA_DIR"):
+        path = os.environ["DOSE_DATA_DIR"]
+    elif IS_WINDOWS:
+        path = os.path.join(GLib.get_user_data_dir(), "Dose")
+    else:
+        path = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "dose")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -91,6 +100,11 @@ def system_language():
         if value:
             code = value.split(".")[0].split("_")[0].split("@")[0].lower()
             return "en" if code in ("c", "posix") else code
+    if IS_WINDOWS:   # Windows has no LANG: GLib reads the Windows display language
+        for name in GLib.get_language_names():
+            code = name.split(".")[0].split("_")[0].split("@")[0].lower()
+            if code not in ("c", "posix", ""):
+                return code
     return "en"
 
 
@@ -809,8 +823,13 @@ def reminder_text(t, meds, discreet):
     return tr("%s · time for your medicine") % t, names + amounts
 
 
-def notify(title, body, actions):
-    """notify-send with buttons; returns the chosen action or None. Blocks until answered."""
+def notify(title, body, actions, day=None, t=None):
+    """notify-send with buttons; returns the chosen action or None. Blocks until answered.
+    On Windows a toast instead: its buttons open dose:taken?… or dose:later?…, which a new
+    Dose process handles (see handle_link), so this returns None at once."""
+    if IS_WINDOWS:
+        win_toast(title, body, day, t, actions)
+        return None
     exe = shutil.which("notify-send")
     if not exe:
         return None
@@ -840,7 +859,7 @@ def run_background():
     def answer(key, day, t, meds):
         p = prefs()
         title, body = reminder_text(t, meds, p["discreet"])
-        choice = notify(title, body, [("taken", tr("Taken")), ("later", tr("Later"))])
+        choice = notify(title, body, [("taken", tr("Taken")), ("later", tr("Later"))], day.isoformat(), t)
         with lock:
             if choice == "taken":
                 store = Store()
@@ -862,8 +881,20 @@ def run_background():
         except OSError:
             pass
 
+    if IS_WINDOWS:
+        win_write_pid()
     while True:
         p = prefs()
+        if IS_WINDOWS:    # "Later" in a toast is answered by another Dose process: read what it wrote
+            try:
+                with open(notified_path(), encoding="utf-8") as f:
+                    disk = json.load(f)
+                with lock:
+                    for k, v in disk.items():
+                        if isinstance(v, dict) and v.get("until", 0) > seen.get(k, {}).get("until", 0):
+                            seen[k] = v
+            except (OSError, ValueError):
+                pass
         if p["sync"] and server is None and crypto_available():
             try:
                 server = make_server(int(sync_config().get("port", SYNC_PORT)))
@@ -906,7 +937,158 @@ def main():
     if "--background" in sys.argv:
         run_background()
         return 0
+    if "--resume-background" in sys.argv:     # run by the Windows installer after an update
+        if IS_WINDOWS and win_autostart_on():
+            win_set_autostart(True)
+            win_start_background()
+        return 0
+    links = [a for a in sys.argv[1:] if a.lower().startswith("dose:")]
+    if links and handle_link(links[0]):
+        return 0
     return run_app()
+
+
+# ----------------------------------------------------------------- Windows
+# No systemd and no notify-send: `Dose.exe --background` starts at login from the "Run" key
+# (and is found again by its process id), and reminders are Windows notifications (toasts)
+# whose buttons open dose:taken?… and dose:later?… links, registered by the installer.
+WIN_APP_ID = "Dose.Dose"          # the Start menu shortcut carries this id (installer)
+WIN_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+WIN_RUN_NAME = "Dose reminders"
+NO_WINDOW = 0x08000000 if IS_WINDOWS else 0   # CREATE_NO_WINDOW
+
+
+def self_command(*args):
+    """The command that runs Dose again: Dose.exe when installed, else Python with this script."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable] + list(args)
+    return [sys.executable, os.path.realpath(os.path.abspath(sys.argv[0]))] + list(args)
+
+
+def handle_link(link):
+    """dose:taken?day=…&time=… marks the doses of that time; dose:later?… asks again in 10
+    minutes; dose:open (or anything else) opens the window. Returns True when handled here."""
+    from urllib.parse import parse_qs, urlsplit
+    parts = urlsplit(link)
+    what = (parts.path or parts.netloc).strip("/").lower()
+    q = {k: v[0] for k, v in parse_qs(parts.query).items()}
+    day, t = parse_day(q.get("day")), q.get("time", "")
+    if what not in ("taken", "later") or not day or not TIME_RE.match(t):
+        return False
+    if what == "taken":
+        store = Store()
+        for slot_time, med, dose in store.slots(day):
+            if slot_time == t and not dose:
+                store.mark(med["id"], day, t, "taken")
+        store.save()
+    else:
+        try:
+            with open(notified_path(), encoding="utf-8") as f:
+                seen = json.load(f)
+        except (OSError, ValueError):
+            seen = {}
+        seen["%s %s" % (day.isoformat(), t)] = {"until": time.time() + 10 * 60, "again": False}
+        with open(notified_path() + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(seen, f)
+        os.replace(notified_path() + ".tmp", notified_path())
+    return True
+
+
+def win_run(cmd):
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        return done.returncode == 0, (done.stderr or done.stdout).strip()
+    except (OSError, subprocess.SubprocessError) as err:
+        return False, str(err)
+
+
+def toast_xml(title, body, day=None, t=None, actions=()):
+    def esc(text):
+        return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+    buttons = ""
+    if day and t and actions:
+        buttons = "<actions>%s</actions>" % "".join(
+            '<action content="%s" activationType="protocol" arguments="dose:%s?day=%s&amp;time=%s"/>'
+            % (esc(label), key, day, t) for key, label in actions)
+    return ('<toast activationType="protocol" launch="dose:open"%s>'
+            '<visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual>%s</toast>'
+            % (' scenario="reminder"' if buttons else "", esc(title), esc(body), buttons))
+
+
+def win_toast(title, body, day=None, t=None, actions=()):
+    """A Windows notification with buttons; Windows opens dose: links for them."""
+    xml = toast_xml(title, body, day, t, actions)
+    script = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null\n"
+        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null\n"
+        "$x = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
+        "$x.LoadXml('%s')\n"
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('%s').Show("
+        "[Windows.UI.Notifications.ToastNotification]::new($x))\n" % (xml.replace("'", "''"), WIN_APP_ID))
+    import base64
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return win_run(["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                    "-EncodedCommand", encoded])
+
+
+def win_pid_path():
+    return os.path.join(data_dir(), "background.pid")
+
+
+def win_write_pid():
+    try:
+        with open(win_pid_path(), "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def win_pid_alive(pid):
+    import ctypes
+    kernel = ctypes.windll.kernel32
+    handle = kernel.OpenProcess(0x1000, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    code = ctypes.c_ulong()
+    ok = kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+    kernel.CloseHandle(handle)
+    return bool(ok) and code.value == 259                # STILL_ACTIVE
+
+
+def win_background_running():
+    try:
+        with open(win_pid_path()) as f:
+            return win_pid_alive(int(f.read().strip()))
+    except (OSError, ValueError):
+        return False
+
+
+def win_set_autostart(on):
+    import winreg
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, WIN_RUN_KEY) as key:
+        if on:
+            winreg.SetValueEx(key, WIN_RUN_NAME, 0, winreg.REG_SZ, subprocess.list2cmdline(self_command("--background")))
+        else:
+            try:
+                winreg.DeleteValue(key, WIN_RUN_NAME)
+            except OSError:
+                pass
+
+
+def win_autostart_on():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, WIN_RUN_KEY) as key:
+            winreg.QueryValueEx(key, WIN_RUN_NAME)
+            return True
+    except OSError:
+        return False
+
+
+def win_start_background():
+    if not win_background_running():
+        subprocess.Popen(self_command("--background"), creationflags=NO_WINDOW | 0x00000008,  # DETACHED_PROCESS
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
 
 CSS = """
@@ -1837,14 +2019,14 @@ class Editor(Gtk.Window):
 
 
 class SyncWindow(Gtk.Window):
-    """Phone sync: on or off, the address and the token for the iPhone app."""
+    """Phone sync: on or off, the address and the token for the phone apps."""
 
     def __init__(self, win):
         super().__init__(transient_for=win, modal=True, title=tr("Phone sync"), default_width=520)
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=18, margin_bottom=20,
                       margin_start=20, margin_end=20)
         self.set_child(col)
-        col.append(make_label(tr("Dose on your iPhone syncs with this PC over your home Wi-Fi. Everything "
+        col.append(make_label(tr("Dose on your phone (iPhone or Android) syncs with this PC over your home Wi-Fi. Everything "
                                  "is encrypted with the token below; nothing goes through the internet."),
                               wrap=True))
         lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
@@ -1865,7 +2047,7 @@ class SyncWindow(Gtk.Window):
         new = Gtk.Button(label=tr("New token"), halign=Gtk.Align.START)
         new.connect("clicked", self.on_new)
         col.append(new)
-        col.append(make_label(tr("On the iPhone: Dose → Settings → Sync with your PC, then paste the address "
+        col.append(make_label(tr("On the phone: Dose → Settings → Sync with your PC, then paste the address "
                                  "and the token."), "dim-label", wrap=True, margin_top=6))
         status = tr("Not synced yet.")
         try:
@@ -1879,7 +2061,9 @@ class SyncWindow(Gtk.Window):
             col.append(make_label(tr("Sync needs the python3-cryptography package."), "dose-late", wrap=True))
         if not background_running():
             col.append(make_label(tr("The background service isn't running, so the phone can't reach this PC. "
-                                     "Install Dose from the .deb, or run: dose --background"), "dose-late", wrap=True))
+                                     "Install Dose from the .deb, or run: dose --background") if not IS_WINDOWS else
+                                  tr("The background part of Dose isn't running, so the phone can't reach this PC. "
+                                     "Open Dose again, or reinstall it"), "dose-late", wrap=True))
 
     def add_copy(self, lb, title, value, sub=None):
         row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value))
@@ -1944,6 +2128,8 @@ class PrefsWindow(Gtk.Window):
 
 
 def background_running():
+    if IS_WINDOWS:
+        return win_background_running()
     if not shutil.which("systemctl"):
         return False
     out = subprocess.run(["systemctl", "--user", "is-active", "dose-background.service"],
@@ -1954,6 +2140,17 @@ def background_running():
 def start_background():
     """Turn on the user service from the .deb (reminders and sync) once, the first time Dose opens."""
     cfg = load_config()
+    if IS_WINDOWS:     # at every login from the Run key, and now if it isn't running
+        if not cfg.get("service_set"):
+            try:
+                win_set_autostart(True)
+            except OSError:
+                return
+            cfg["service_set"] = True
+            save_config(cfg)
+        if win_autostart_on():
+            win_start_background()
+        return
     if cfg.get("service_set") or not shutil.which("systemctl"):
         return
     if not os.path.exists("/usr/lib/systemd/user/dose-background.service"):
