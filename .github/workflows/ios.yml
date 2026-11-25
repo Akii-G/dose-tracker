@@ -53,7 +53,8 @@ jobs:
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build | tee build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/Build/Products/Release-iphoneos/Dose.app || (grep -B2 -A6 "error:" build.log | head -200; exit 1)
+          # the program itself, not just the folder (resources are copied even when compiling fails)
+          test -f build/Build/Products/Release-iphoneos/Dose.app/Dose || (grep -B2 -A6 "error:" build.log | head -200; exit 1)
 
       - name: Package the .ipa
         working-directory: ios
@@ -61,9 +62,7 @@ jobs:
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Dose.app Payload/
           # A placeholder signature; SideStore, AltStore or Feather re-sign it when installing.
-          ls -la Payload/Dose.app | head -30
-          # ldid can stop on some binaries (an assert, errno 2): Apple's own ad-hoc signature does the same job
-          ldid -S Payload/Dose.app/Dose || codesign --force --sign - --timestamp=none Payload/Dose.app
+          ldid -S Payload/Dose.app/Dose
           VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
           IPA="Dose-iPhone-$VERSION.ipa"
           zip -qry "$IPA" Payload

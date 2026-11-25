@@ -21,7 +21,7 @@ enum Report {
         let stop = m.history.filter { $0.kind == "stopped" }.map(\.date).max()
         var med = m
         if m.archived, let stop, day < stop { med.archived = false }
-        return med.dueOn(day)
+        return med.due(on: day)
     }
 
     static func data(_ store: AppStore, from start: String, to end: String, now: Date = Date()) -> Data {
