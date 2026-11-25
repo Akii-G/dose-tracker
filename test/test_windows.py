@@ -47,5 +47,5 @@ assert not xml.dom.minidom.parseString(m.toast_xml("t", "b")).getElementsByTagNa
 
 if m.IS_WINDOWS:
     del os.environ["DOSE_DATA_DIR"]
-    assert m.data_dir().lower().endswith(os.path.join("appdata", "local", "dose")), m.data_dir()
+    assert m.data_dir().lower().replace("\\", "/").endswith("appdata/local/dose"), m.data_dir()
 print("windows ok")
