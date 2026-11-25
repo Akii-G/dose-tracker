@@ -73,7 +73,7 @@ enum Aic {
     static func fromText(_ text: String) -> String? {
         let t = text.uppercased().filter { !" .-\t".contains($0) }
         let digits = t.hasPrefix("A") ? String(t.dropFirst()) : t
-        return digits.count == 9 && digits.allSatisfy(\.isASCIIDigit) ? digits : nil
+        return digits.count == 9 && digits.allSatisfy({ $0.isASCII && $0.isNumber }) ? digits : nil
     }
 
     static func fromBarcode(_ payload: String) -> String? {
@@ -96,7 +96,7 @@ enum Aic {
             while end < chars.count && chars[end] != "\u{1D}" { end += 1 }
             let field = String(chars[i..<end])
             if field.hasPrefix("716") {
-                let digits = field.dropFirst(3).filter(\.isASCIIDigit)
+                let digits = field.dropFirst(3).filter({ $0.isASCII && $0.isNumber })
                 guard !digits.isEmpty else { return nil }
                 let last = String(digits.suffix(9))
                 return String(repeating: "0", count: 9 - last.count) + last
