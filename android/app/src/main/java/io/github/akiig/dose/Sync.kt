@@ -46,6 +46,20 @@ class Prefs(context: Context) {
     var remind: Boolean
         get() = p.getBoolean("remind", true)
         set(v) = p.edit().putBoolean("remind", v).apply()
+    /** urgent (pops up, the sound repeats until you answer), high (pops up), normal (no pop-up), quiet (no sound). */
+    var tone: String
+        get() = p.getString("tone", "violet") ?: "violet"
+        set(v) = p.edit().putString("tone", v).apply()
+    var priority: String
+        get() = p.getString("priority", "high") ?: "high"
+        set(v) = p.edit().putString("priority", v).apply()
+    /** default (the phone's), chime, bell, soft, none, or custom (soundUri, picked from the phone's sounds). */
+    var sound: String
+        get() = p.getString("sound", "default") ?: "default"
+        set(v) = p.edit().putString("sound", v).apply()
+    var soundUri: String
+        get() = p.getString("soundUri", "") ?: ""
+        set(v) = p.edit().putString("soundUri", v).apply()
 
     val isConfigured get() = server.isNotBlank() && token.isNotBlank()
 }

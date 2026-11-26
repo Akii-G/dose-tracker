@@ -9,6 +9,7 @@ datas = [(os.path.join(root, "po", "*.po"), "po"),
          (os.path.join(root, "data", "app.dose.Dose.svg"), "share/icons/hicolor/scalable/apps"),
          # a PNG too: the bundled GTK may have no SVG loader. Found directly in share/icons (unthemed)
          (os.path.join(SPECPATH, "app.dose.Dose.png"), "share/icons"),
+         (os.path.join(root, "data", "icons", "hicolor", "scalable", "actions", "*.svg"), "share/icons/hicolor/scalable/actions"),
          (os.path.join(SPECPATH, "app.dose.Dose.png"), "share/icons/hicolor/256x256/apps")]
 
 # GLib starts gdbus.exe for GApplication on Windows; without it GLib warns and may give up

@@ -63,14 +63,14 @@ private fun MedicineRow(m: Medicine, onClick: () -> Unit) {
         // with large text the stock goes under, as one more line
         val stock = left?.let { tr("%@ left", number(it)) + (store.daysLeft(m)?.let { d -> " · " + trn("%@ day", "%@ days", d) } ?: "") }
         Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp)) {
-            TwoLines(m.title, detail)
+            MedicineLine(m.unit, m.title, detail)
             if (stock != null) Text(stock, style = MaterialTheme.typography.bodySmall, color = color)
         }
         return
     }
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        TwoLines(m.title, detail, Modifier.weight(1f))
+        MedicineLine(m.unit, m.title, detail, Modifier.weight(1f))
         if (left != null) {
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
                 Text(tr("%@ left", number(left)), style = MaterialTheme.typography.bodySmall, color = color)

@@ -42,10 +42,12 @@ struct MedicinesView: View {
         let layout = textSize >= .xxxLarge ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
         return Button { editing = med } label: {
             layout {
+                UnitBadge(unit: med.unit)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(med.title).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                    // Color.primary, not .primary: in a button .primary is the button's colour (the accent)
+                    Text(med.title).font(.body.weight(.semibold)).foregroundStyle(Color.primary)
                     Text(Describe.line(med.amount, med.unit, med.schedule))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(Color.secondary)
                 }
                 if textSize < .xxxLarge { Spacer() }
                 if let left = store.remaining(med) {
@@ -56,7 +58,7 @@ struct MedicinesView: View {
                         }
                     }
                     .font(.caption)
-                    .foregroundStyle(store.isLow(med) ? Palette.warning : .secondary)
+                    .foregroundStyle(store.isLow(med) ? Palette.warning : Color.secondary)
                 }
             }
         }

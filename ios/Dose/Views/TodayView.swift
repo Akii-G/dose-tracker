@@ -110,9 +110,12 @@ struct DoseRow: View {
         // with the largest text sizes the buttons go under the name, full width, instead of squeezing it
         let big = textSize >= .xxxLarge   // about 135%, like Android's 130%
         AdaptiveRow(big: big) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(slot.med.title).font(.body.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                UnitBadge(unit: slot.med.unit)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(slot.med.title).font(.body.weight(.semibold))
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
             }
         } trailing: {
             if let dose = slot.dose {
@@ -187,9 +190,12 @@ struct NeededRow: View {
     var body: some View {
         let big = textSize >= .xxxLarge   // about 135%, like Android's 130%
         AdaptiveRow(big: big) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(med.title).font(.body.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                UnitBadge(unit: med.unit)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(med.title).font(.body.weight(.semibold))
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
             }
         } trailing: {
             Button {
@@ -233,5 +239,23 @@ struct AdaptiveRow<Main: View, Trailing: View>: View {
                 trailing()
             }
         }
+    }
+}
+
+/// The kind of medicine as a small icon in a tinted circle (the same drawings as the PC and Android).
+struct UnitBadge: View {
+    let unit: String
+    @ScaledMetric private var size: CGFloat = 36
+
+    private static let units: Set<String> = ["pill", "capsule", "drop", "ml", "puff", "sachet", "patch", "injection", "application"]
+
+    var body: some View {
+        Image("unit-" + (Self.units.contains(unit) ? unit : "pill"))
+            .renderingMode(.template).resizable().scaledToFit()
+            .frame(width: min(size, 50) * 0.55, height: min(size, 50) * 0.55)
+            .foregroundStyle(Palette.accent)
+            .frame(width: min(size, 50), height: min(size, 50))
+            .background(Palette.accent.opacity(0.14), in: Circle())
+            .accessibilityHidden(true)
     }
 }

@@ -8,14 +8,38 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/** The same colours as Sottovoce: its icon's violet, lavender, and the soft red of "Bad". */
+/** A colour tone: accent, accent at night, "all taken", "some taken". The PC has the same (TONES). */
+data class Tone(val key: String, val name: String, val accent: Color, val night: Color, val taken: Color, val some: Color)
+
+object Tones {
+    val all = listOf(
+        Tone("violet", "Violet", Color(0xff5c56b4), Color(0xff8e86d8), Color(0xff6f67c9), Color(0xffc9c4f2)),
+        Tone("blue", "Blue", Color(0xff2f6fcf), Color(0xff6fa3ee), Color(0xff3f7fe0), Color(0xffc3d8f7)),
+        Tone("teal", "Teal", Color(0xff1f7f7c), Color(0xff4fc2bd), Color(0xff2a9a96), Color(0xffbfe6e3)),
+        Tone("green", "Green", Color(0xff3a7f47), Color(0xff6cc47c), Color(0xff48a058), Color(0xffcbe9cf)),
+        Tone("rose", "Rose", Color(0xffb0466f), Color(0xffe48ab0), Color(0xffc85a8c), Color(0xfff3cadb)),
+        Tone("amber", "Amber", Color(0xffa8681a), Color(0xffe8a64a), Color(0xffcc8526), Color(0xfff5dcb3)),
+    )
+    /** The chosen tone; changing it recolours the app at once. */
+    var current by androidx.compose.runtime.mutableStateOf(all[0])
+    fun choose(key: String) { current = all.firstOrNull { it.key == key } ?: all[0] }
+    fun label(t: Tone) = when (t.key) {
+        "blue" -> io.github.akiig.dose.tr("Blue"); "teal" -> io.github.akiig.dose.tr("Teal"); "green" -> io.github.akiig.dose.tr("Green")
+        "rose" -> io.github.akiig.dose.tr("Rose"); "amber" -> io.github.akiig.dose.tr("Amber"); else -> io.github.akiig.dose.tr("Violet")
+    }
+}
+
+/** Violet by default, like Sottovoce's icon, with lavender and the soft red of "Bad". */
 object Palette {
-    val accent = Color(0xff5c56b4)
-    val taken = Color(0xff6f67c9)
-    val some = Color(0xffc9c4f2)
+    val accent get() = Tones.current.accent
+    val taken get() = Tones.current.taken
+    val some get() = Tones.current.some
     val none = Color(0xffeb9a94)
     val warning = Color(0xffcf3f3f)
 
@@ -62,5 +86,10 @@ private val type = Typography().run {
 
 @Composable
 fun DoseTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) dark else light, typography = type, content = content)
+    val t = Tones.current
+    val scheme = if (isSystemInDarkTheme()) dark.copy(primary = t.night, primaryContainer = t.accent.copy(alpha = 0.35f).compositeOver(Color.Black),
+                                                      onPrimaryContainer = t.some)
+                 else light.copy(primary = t.accent, primaryContainer = t.some.copy(alpha = 0.6f).compositeOver(Color.White),
+                                 onPrimaryContainer = t.accent)
+    MaterialTheme(colorScheme = scheme, typography = type, content = content)
 }

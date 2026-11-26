@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.2.0"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "1.3.0"
+    CURRENT_PROJECT_VERSION: "5"
 targets:
   Dose:
     type: application
@@ -17,6 +17,8 @@ targets:
     sources:
       - path: Dose
       - path: ../data/medicines-it.tsv
+        buildPhase: resources
+      - path: ../data/sounds          # chime.wav, bell.wav, soft.wav at the top of the app, where iOS looks
         buildPhase: resources
     settings:
       base:

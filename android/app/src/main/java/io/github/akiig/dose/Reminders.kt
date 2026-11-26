@@ -85,12 +85,54 @@ object Reminders {
         }
     }
 
-    fun createChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < 26) return
-        val channel = NotificationChannel(CHANNEL, tr("Doses"), NotificationManager.IMPORTANCE_HIGH).apply {
-            description = tr("When a dose is due, and once more 30 minutes later if it isn't marked.")
+    val PRIORITIES = listOf("urgent", "high", "normal", "quiet")
+    val SOUNDS = listOf("default", "chime", "bell", "soft", "custom", "none")
+
+    /** The sound a choice plays, or null for none. */
+    fun soundUri(context: Context, sound: String, custom: String): android.net.Uri? = when (sound) {
+        "none" -> null
+        "chime", "bell", "soft" -> android.net.Uri.parse("android.resource://${context.packageName}/raw/dose_$sound")
+        "custom" -> if (custom.isNotEmpty()) android.net.Uri.parse(custom) else android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
+        else -> android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
+    }
+
+    /**
+     * Android fixes a channel's sound and importance once it's made, so each choice of priority
+     * and sound has its own channel; the old ones are removed when you change them.
+     */
+    fun createChannel(context: Context): String {
+        val prefs = Prefs(context)
+        val priority = prefs.priority.takeIf { it in PRIORITIES } ?: "high"
+        val sound = if (priority == "quiet") "none" else prefs.sound
+        val key = if (sound == "custom") "custom" + Integer.toHexString(prefs.soundUri.hashCode()) else sound
+        val id = "dose-$priority-$key"
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(id) == null) {
+            val importance = when (priority) {
+                "urgent", "high" -> NotificationManager.IMPORTANCE_HIGH
+                "normal" -> NotificationManager.IMPORTANCE_DEFAULT
+                else -> NotificationManager.IMPORTANCE_LOW
+            }
+            val channel = NotificationChannel(id, tr("Doses"), importance).apply {
+                description = tr("When a dose is due, and once more 30 minutes later if it isn't marked.")
+                val uri = soundUri(context, sound, prefs.soundUri)
+                // urgent sounds use the alarm volume, so they're heard when the ringer is low
+                val usage = if (priority == "urgent") android.media.AudioAttributes.USAGE_ALARM
+                            else android.media.AudioAttributes.USAGE_NOTIFICATION
+                setSound(uri, if (uri == null) null else android.media.AudioAttributes.Builder()
+                    .setUsage(usage).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                enableVibration(priority != "quiet")
+            }
+            nm.createNotificationChannel(channel)
         }
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+        for (c in nm.notificationChannels) if (c.id != id && (c.id == CHANNEL || c.id.startsWith("dose-"))) nm.deleteNotificationChannel(c.id)
+        return id
+    }
+
+    /** Plays a sound choice once, to hear it in Settings. */
+    fun preview(context: Context, sound: String, custom: String) {
+        val uri = soundUri(context, sound, custom) ?: return
+        try { android.media.RingtoneManager.getRingtone(context, uri)?.play() } catch (e: Exception) { }
     }
 
     fun canNotify(context: Context): Boolean = Build.VERSION.SDK_INT < 33 ||
@@ -99,7 +141,7 @@ object Reminders {
     fun show(context: Context, store: AppStore, day: String, time: String, again: Boolean) {
         val meds = store.slots(day).filter { it.time == time && it.dose == null }.map { it.med }
         if (meds.isEmpty() || !canNotify(context)) return
-        createChannel(context)
+        val channel = createChannel(context)
         val prefs = Prefs(context)
         val title: String; val body: String
         if (prefs.discreet) {
@@ -116,19 +158,24 @@ object Reminders {
             Intent(context, MainActivity::class.java).putExtra(OPEN_TODAY, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val n = NotificationCompat.Builder(context, CHANNEL)
+        val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(0xff5c56b4.toInt())
+            .setColor(io.github.akiig.dose.ui.Tones.all.firstOrNull { it.key == prefs.tone }?.accent?.let {
+                android.graphics.Color.argb((it.alpha * 255).toInt(), (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()) }
+                ?: 0xff5c56b4.toInt())
             .setContentTitle(title)
             .setContentText(body)
             .setContentIntent(open)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(when (prefs.priority) { "normal" -> NotificationCompat.PRIORITY_DEFAULT; "quiet" -> NotificationCompat.PRIORITY_LOW
+                else -> NotificationCompat.PRIORITY_HIGH })
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .addAction(0, tr("Taken"), action(ACTION_TAKEN, 1))
             .addAction(0, tr("Later (10 minutes)"), action(ACTION_LATER, 2))
             .addExtras(android.os.Bundle().apply { putString("dose.day", day); putString("dose.time", time) })
             .build()
+        // urgent: the sound repeats until you answer, open or swipe it away
+        if (prefs.priority == "urgent") n.flags = n.flags or android.app.Notification.FLAG_INSISTENT
         try { NotificationManagerCompat.from(context).notify(id, n) } catch (e: SecurityException) { }
     }
 

@@ -10,6 +10,9 @@ struct SettingsView: View {
     @AppStorage("autoSync") private var autoSync = true
     @AppStorage("followUp") private var followUp = true
     @AppStorage("discreet") private var discreet = false
+    @AppStorage("priority") private var priority = "normal"
+    @AppStorage("sound") private var sound = "default"
+    @AppStorage("tone") private var tone = "violet"
     @State private var testing = ""
     @State private var allowed: UNAuthorizationStatus = .notDetermined
     @State private var reporting = false
@@ -60,6 +63,64 @@ struct SettingsView: View {
                     Text("Discreet notifications say only \"Time for your 08:00 dose\", without the medicine's name.")
                 }
                 Section {
+                    Picker("Priority", selection: $priority) {
+                        Text("Time Sensitive").tag("timeSensitive")
+                        Text("Normal").tag("normal")
+                        Text("Quiet").tag("quiet")
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } header: {
+                    Text("Priority")
+                } footer: {
+                    switch priority {
+                    case "timeSensitive":
+                        Text("Can reach you during a Focus and stays on the Lock Screen for an hour, if your iPhone allows it for Dose (Settings → Notifications → Dose → Time Sensitive).")
+                    case "quiet":
+                        Text("No sound and no banner: it waits in Notification Centre.")
+                    default:
+                        Text("A banner with a sound.")
+                    }
+                }
+                if priority != "quiet" {
+                    Section {
+                        Picker("Sound", selection: $sound) {
+                            Text("The iPhone's notification sound").tag("default")
+                            Text("Chime").tag("chime")
+                            Text("Bell").tag("bell")
+                            Text("Soft").tag("soft")
+                            Text("No sound").tag("none")
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } header: {
+                        Text("Sound")
+                    } footer: {
+                        Text("Tap a sound to hear it.")
+                    }
+                }
+                Section {
+                    HStack {
+                        ForEach(Tone.all, id: \.key) { t in
+                            Button { tone = t.key } label: {
+                                Circle().fill(Color(hex: t.accent))
+                                    .frame(width: 34, height: 34)
+                                    .padding(4)
+                                    .overlay(Circle().stroke(Color.primary, lineWidth: tone == t.key ? 3 : 0))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(t.label))
+                            .accessibilityAddTraits(tone == t.key ? .isSelected : [])
+                            if t.key != Tone.all.last?.key { Spacer(minLength: 0) }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("Colour")
+                } footer: {
+                    Text(Tone.current.label)
+                }
+                Section {
                     Button("Report for your doctor") { reporting = true }
                     Button("Back up") { exporting = true }
                     Button("Restore from a backup") { importing = true }
@@ -95,6 +156,8 @@ struct SettingsView: View {
             }
             .onChange(of: followUp) { _, _ in Reminders.plan(store) }
             .onChange(of: discreet) { _, _ in Reminders.plan(store) }
+            .onChange(of: priority) { _, _ in Reminders.plan(store) }
+            .onChange(of: sound) { _, new in Reminders.preview(new); Reminders.plan(store) }
             .task {
                 allowed = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             }

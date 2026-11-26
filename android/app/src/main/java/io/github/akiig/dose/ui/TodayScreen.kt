@@ -143,7 +143,7 @@ private fun DoseRow(day: String, slot: AppStore.Slot, minute: String) {
                 color = if (taken) Palette.taken else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AdaptiveRow(Modifier.combinedClickable(onClick = { if (dose != null) menu = true }, onLongClick = { menu = true }),
-            main = { TwoLines(slot.med.title, detail, it) }) {
+            main = { MedicineLine(slot.med.unit, slot.med.title, detail, it) }) {
             if (dose != null) status()
             else {
                 PillButton(tr("Skip"), prominent = false, wide()) { mark("skipped") }
@@ -174,7 +174,7 @@ private fun NeededRow(day: String, med: Medicine, doses: List<DoseRecord>) {
                  else doses.joinToString(", ") { "${it.at} (${Units.amount(it.amount, med.unit)})" }
     Column {
         AdaptiveRow(Modifier.combinedClickable(onClick = {}, onLongClick = { if (doses.isNotEmpty()) menu = true }),
-            main = { TwoLines(med.title, detail, it) }) {
+            main = { MedicineLine(med.unit, med.title, detail, it) }) {
             PillButton(if (day == Day.today) tr("Take now") else tr("Add"), prominent = false, wide()) {
                 store.takeNow(med.id, day, if (day == Day.today) null else "12:00")
             }

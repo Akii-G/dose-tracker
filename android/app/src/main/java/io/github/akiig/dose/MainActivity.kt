@@ -40,14 +40,28 @@ class AppState private constructor(app: Application) {
     fun chooseRemind(on: Boolean) { remind = on; prefs.remind = on; replan() }
     fun chooseFollowUp(on: Boolean) { followUp = on; prefs.followUp = on; replan() }
     fun chooseDiscreet(on: Boolean) { discreet = on; prefs.discreet = on }
+    var priority by mutableStateOf(prefs.priority)
+        private set
+    var sound by mutableStateOf(prefs.sound)
+        private set
+    var soundUri by mutableStateOf(prefs.soundUri)
+        private set
+    fun choosePriority(p: String) { priority = p; prefs.priority = p; Reminders.createChannel(context) }
+    fun chooseSound(s: String, uri: String = soundUri) {
+        sound = s; soundUri = uri; prefs.sound = s; prefs.soundUri = uri
+        Reminders.createChannel(context)
+        Reminders.preview(context, s, uri)
+    }
     fun chooseAutoSync(on: Boolean) { autoSync = on; prefs.autoSync = on; if (on) sync.syncSoon(store, 0) }
 
     fun replan() = Reminders.plan(context, store)
+    fun chooseTone(key: String) { prefs.tone = key; io.github.akiig.dose.ui.Tones.choose(key) }
 
     /** Asks Android 13+ for notifications; set by the screen, which owns the request. */
     var askNotifications: () -> Unit = {}
 
     init {
+        io.github.akiig.dose.ui.Tones.choose(prefs.tone)
         store.onChange = {
             sync.syncSoon(store, 2_000)
             replan()

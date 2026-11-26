@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- tools/make_icons.py -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <group android:rotation="0" android:pivotX="12" android:pivotY="12">
+        <path android:fillColor="#FF000000" android:pathData="M5 6.5 6.75 4.5 8.5 6.5 10.25 4.5 12 6.5 13.75 4.5 15.5 6.5 17.25 4.5 19 6.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" />
+    </group>
+</vector>

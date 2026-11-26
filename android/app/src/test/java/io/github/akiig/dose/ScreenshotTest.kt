@@ -66,6 +66,7 @@ abstract class Screens(private val lang: String) {
         tab("Medicines"); shot("2-medicines")
         tab("History"); shot("3-history")
         tab("Settings"); shot("4-settings")
+        rule.onAllNodes(hasText(tr("Chime")))[0].performScrollTo(); shot("4b-sound")
         tab("Medicines")
         rule.onAllNodes(hasText("Risperidone 2 mg"))[0].performClick()
         shot("5-editor")
@@ -73,11 +74,23 @@ abstract class Screens(private val lang: String) {
         tab("Settings")
         rule.onAllNodes(hasText(tr("Report for your doctor")))[0].performScrollTo().performClick()
         shot("6-report")
+        rule.onAllNodes(hasText(tr("Close")))[0].performClick()
+        tab("Today")
+        rule.onAllNodes(androidx.compose.ui.test.hasContentDescription(tr("Add a medicine")))[0].performClick()
+        shot("7-add")
     }
 }
 
 class ScreensEnglish : Screens("en") {
     init { seed() }
+
+    /** Another colour tone recolours the app at once. */
+    @Test fun teal() {
+        rule.runOnUiThread { io.github.akiig.dose.ui.Tones.choose("teal") }
+        shot("tone-teal")
+        rule.onAllNodes(hasText(tr("Medicines")))[0].performClick(); shot("tone-teal-medicines")
+        rule.runOnUiThread { io.github.akiig.dose.ui.Tones.choose("violet") }
+    }
 
     /** Tapping only Friday in a new medicine means Friday only (all seven used to start ticked). */
     @Test fun onlyFriday() {

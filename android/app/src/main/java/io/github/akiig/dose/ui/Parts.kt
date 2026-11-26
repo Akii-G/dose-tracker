@@ -190,3 +190,36 @@ fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) {
         if (checked) Icon(androidx.compose.material.icons.Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary)
     }
 }
+
+/** The drawable for a kind of medicine (tools/make_icons.py draws them). */
+fun unitIcon(unit: String): Int = when (unit) {
+    "capsule" -> io.github.akiig.dose.R.drawable.ic_unit_capsule
+    "drop" -> io.github.akiig.dose.R.drawable.ic_unit_drop
+    "ml" -> io.github.akiig.dose.R.drawable.ic_unit_ml
+    "puff" -> io.github.akiig.dose.R.drawable.ic_unit_puff
+    "sachet" -> io.github.akiig.dose.R.drawable.ic_unit_sachet
+    "patch" -> io.github.akiig.dose.R.drawable.ic_unit_patch
+    "injection" -> io.github.akiig.dose.R.drawable.ic_unit_injection
+    "application" -> io.github.akiig.dose.R.drawable.ic_unit_application
+    else -> io.github.akiig.dose.R.drawable.ic_unit_pill
+}
+
+/** The kind of medicine as a small icon in a tinted circle. */
+@Composable
+fun UnitBadge(unit: String) {
+    val k = minOf(LocalDensity.current.fontScale, 1.4f).coerceAtLeast(1f)
+    Box(Modifier.size(36.dp * k).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center) {
+        Icon(androidx.compose.ui.res.painterResource(unitIcon(unit)), null, Modifier.size(20.dp * k),
+            tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/** A medicine's icon, name and detail, side by side. */
+@Composable
+fun MedicineLine(unit: String, title: String, detail: String, modifier: Modifier = Modifier, detailColor: Color = Color.Unspecified) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        UnitBadge(unit)
+        TwoLines(title, detail, Modifier.weight(1f), detailColor)
+    }
+}

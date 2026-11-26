@@ -8,6 +8,9 @@ rm -rf build && mkdir -p "$PKG/DEBIAN"
 install -Dm755 src/dose "$PKG/usr/bin/dose"
 install -Dm644 data/app.dose.Dose.desktop "$PKG/usr/share/applications/app.dose.Dose.desktop"
 install -Dm644 data/app.dose.Dose.svg "$PKG/usr/share/icons/hicolor/scalable/apps/app.dose.Dose.svg"
+for f in data/icons/hicolor/scalable/actions/*.svg; do
+    install -Dm644 "$f" "$PKG/usr/share/icons/hicolor/scalable/actions/$(basename "$f")"
+done
 install -Dm644 data/dose-background.service "$PKG/usr/lib/systemd/user/dose-background.service"
 install -Dm644 data/medicines-it.tsv "$PKG/usr/share/dose/data/medicines-it.tsv"
 for po in po/*.po; do install -Dm644 "$po" "$PKG/usr/share/dose/po/$(basename "$po")"; done

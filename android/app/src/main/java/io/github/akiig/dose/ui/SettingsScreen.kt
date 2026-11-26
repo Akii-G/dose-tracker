@@ -18,6 +18,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import android.media.RingtoneManager
 import io.github.akiig.dose.trn
 import io.github.akiig.dose.Day
 import io.github.akiig.dose.Backup
@@ -55,6 +71,14 @@ fun SettingsScreen(onReport: () -> Unit = {}) {
         try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
     }
     var dataNote by remember { mutableStateOf("") }
+    val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        @Suppress("DEPRECATION")
+        val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        if (uri != null) app.chooseSound("custom", uri.toString())
+    }
+    val customName = remember(app.soundUri) {
+        if (app.soundUri.isEmpty()) "" else try { RingtoneManager.getRingtone(context, Uri.parse(app.soundUri))?.getTitle(context) ?: "" } catch (e: Exception) { "" }
+    }
     val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) dataNote = try {
             context.contentResolver.openOutputStream(uri)?.use { Backup.write(app.store, it, version) }
@@ -119,6 +143,47 @@ fun SettingsScreen(onReport: () -> Unit = {}) {
                 SwitchRow(tr("Remind me again after 30 minutes"), app.followUp) { app.chooseFollowUp(it) }
                 Line()
                 SwitchRow(tr("Discreet notifications"), app.discreet) { app.chooseDiscreet(it) }
+            }
+            Section(tr("Priority"), footer = when (app.priority) {
+                "urgent" -> tr("Pops up and the sound repeats until you answer it, open it or swipe it away. It uses the alarm volume.")
+                "high" -> tr("Pops up on the screen with a sound.")
+                "normal" -> tr("A sound, without popping up.")
+                else -> tr("No sound: it waits in the notifications.")
+            }) {
+                val labels = mapOf("urgent" to tr("Urgent"), "high" to tr("High"), "normal" to tr("Normal"), "quiet" to tr("Quiet"))
+                Reminders.PRIORITIES.forEachIndexed { i, p ->
+                    if (i > 0) Line()
+                    CheckRow(labels.getValue(p), app.priority == p) { app.choosePriority(p) }
+                }
+            }
+            if (app.priority != "quiet") Section(tr("Sound"), footer = tr("Tap a sound to hear it.")) {
+                val labels = mapOf("default" to tr("The phone's notification sound"), "chime" to tr("Chime"), "bell" to tr("Bell"),
+                    "soft" to tr("Soft"), "custom" to (if (app.sound == "custom" && customName.isNotEmpty()) customName else tr("Another sound from the phone…")),
+                    "none" to tr("No sound"))
+                Reminders.SOUNDS.forEachIndexed { i, s ->
+                    if (i > 0) Line()
+                    CheckRow(labels.getValue(s), app.sound == s) {
+                        if (s == "custom") pickSound.launch(Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+                            .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION or RingtoneManager.TYPE_ALARM)
+                            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+                            .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, tr("Sound"))
+                            .apply { if (app.soundUri.isNotEmpty()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(app.soundUri)) })
+                        else app.chooseSound(s)
+                    }
+                }
+            }
+            Section(tr("Colour"), footer = Tones.label(Tones.current)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (t in Tones.all) {
+                        val on = Tones.current.key == t.key
+                        Box(Modifier.size(40.dp).clip(CircleShape)
+                            .border(if (on) 3.dp else 0.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, CircleShape)
+                            .padding(if (on) 5.dp else 0.dp).clip(CircleShape).background(if (isSystemInDarkTheme()) t.night else t.accent)
+                            .clickable { app.chooseTone(t.key) }
+                            .semantics { contentDescription = Tones.label(t); selected = on })
+                    }
+                }
             }
             Section(tr("Your data"), footer = dataNote.ifEmpty {
                 tr("A backup is one file with all your medicines and doses. Restoring it on a new phone brings them back.") }) {

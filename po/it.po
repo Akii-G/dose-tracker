@@ -729,3 +729,24 @@ msgid "Restored: %d change."
 msgid_plural "Restored: %d changes."
 msgstr[0] "Ripristinato: %d modifica."
 msgstr[1] "Ripristinato: %d modifiche."
+
+msgid "Colour"
+msgstr "Colore"
+
+msgid "Violet"
+msgstr "Viola"
+
+msgid "Blue"
+msgstr "Blu"
+
+msgid "Teal"
+msgstr "Verde acqua"
+
+msgid "Green"
+msgstr "Verde"
+
+msgid "Rose"
+msgstr "Rosa"
+
+msgid "Amber"
+msgstr "Ambra"

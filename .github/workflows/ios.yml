@@ -55,6 +55,7 @@ jobs:
             build | tee build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
           # the program itself, not just the folder (resources are copied even when compiling fails)
           test -f build/Build/Products/Release-iphoneos/Dose.app/Dose || (grep -B2 -A6 "error:" build.log | head -200; exit 1)
+          test -f build/Build/Products/Release-iphoneos/Dose.app/chime.wav   # the reminder sounds
 
       - name: Package the .ipa
         working-directory: ios
@@ -62,7 +63,7 @@ jobs:
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Dose.app Payload/
           # A placeholder signature; SideStore, AltStore or Feather re-sign it when installing.
-          ldid -S Payload/Dose.app/Dose
+          ldid -Sios/Dose.entitlements Payload/Dose.app/Dose
           VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
           IPA="Dose-iPhone-$VERSION.ipa"
           zip -qry "$IPA" Payload

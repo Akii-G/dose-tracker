@@ -28,7 +28,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 APP_ID = "app.dose.Dose"
 SYNC_PORT = 8766
 IS_WINDOWS = sys.platform == "win32"
@@ -80,7 +80,25 @@ def save_config(cfg):
 
 
 PREF_DEFAULTS = {"language": "auto", "remind": True, "follow_up": True, "discreet": False,
-                 "sync": False, "style": "default"}
+                 "sync": False, "style": "default", "tone": "violet"}
+
+# Colour tones: accent, accent at night, "all taken", "some taken" and the ink on it. Violet is
+# Sottovoce's; the phones have the same tones (ui/Theme.kt, DoseApp.swift).
+TONES = [("violet", "Violet", "#5c56b4", "#8e86d8", "#6f67c9", "#c9c4f2", "#2e2a63"),
+         ("blue", "Blue", "#2f6fcf", "#6fa3ee", "#3f7fe0", "#c3d8f7", "#123a73"),
+         ("teal", "Teal", "#1f7f7c", "#4fc2bd", "#2a9a96", "#bfe6e3", "#0d4442"),
+         ("green", "Green", "#3a7f47", "#6cc47c", "#48a058", "#cbe9cf", "#1a4523"),
+         ("rose", "Rose", "#b0466f", "#e48ab0", "#c85a8c", "#f3cadb", "#5c1f3a"),
+         ("amber", "Amber", "#a8681a", "#e8a64a", "#cc8526", "#f5dcb3", "#5a3709")]
+
+
+def toned(css, tone=None):
+    """The CSS in another colour tone: Dose's violets swapped for the tone's colours."""
+    tone = tone or prefs().get("tone", "violet")
+    t = next((x for x in TONES if x[0] == tone), TONES[0])
+    for old, new in zip(TONES[0][2:], t[2:]):
+        css = css.replace(old, "@@" + new[1:])
+    return css.replace("@@", "#")
 
 
 def prefs():
@@ -1407,6 +1425,8 @@ CSS = """
 .dose-part { font-weight: 700; color: alpha(currentColor, 0.6); margin-top: 14px; margin-bottom: 4px; }
 .dose-time-head { font-size: 13pt; color: #5c56b4; font-variant-numeric: tabular-nums; }
 .dose-taken { color: #5c56b4; font-weight: 600; }
+.dose-unit { background: alpha(#5c56b4, 0.14); border-radius: 999px; min-width: 34px; min-height: 34px; }
+.dose-unit image { color: #5c56b4; }
 .dose-skipped { color: alpha(currentColor, 0.55); }
 .dose-late { color: #cf3f3f; }
 .dose-low { background: alpha(#8e86d8, 0.16); border-radius: 12px; padding: 10px 14px; }
@@ -1631,26 +1651,46 @@ switch:checked { background-color: #8e86d8; }
 _style = {"provider": None}
 
 
+def _load(provider, css):
+    try:
+        provider.load_from_string(css)          # GTK 4.12 and newer
+    except AttributeError:
+        provider.load_from_data(css.encode("utf-8"))
+
+
 def apply_style(name=None):
-    """Switch the look of every Dose window: 'default' or 'tahoe'."""
+    """Switch the look of every Dose window: 'default' or 'tahoe', in the chosen colour tone."""
     name = name or prefs()["style"]
     display = Gdk.Display.get_default()
     if display is None:
         return
+    if _style.get("base") is None:
+        _style["base"] = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(display, _style["base"], Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _load(_style["base"], toned(CSS))
     if _style["provider"] is not None:
         Gtk.StyleContext.remove_provider_for_display(display, _style["provider"])
         _style["provider"] = None
     if name != "tahoe":
         return
     provider = Gtk.CssProvider()
-    css = _TAHOE_DARK if Adw.StyleManager.get_default().get_dark() else _TAHOE_LIGHT
-    try:
-        provider.load_from_string(css)
-    except AttributeError:
-        provider.load_from_data(css.encode("utf-8"))
+    _load(provider, toned(_TAHOE_DARK if Adw.StyleManager.get_default().get_dark() else _TAHOE_LIGHT))
     # above ~/.config/gtk-4.0/gtk.css, where many system themes put their rules
     Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
     _style["provider"] = provider
+
+
+UNIT_ICONS = ("pill", "capsule", "drop", "ml", "puff", "sachet", "patch", "injection", "application")
+
+
+def unit_icon(unit):
+    """The kind of medicine as a small icon in a tinted circle (data/icons, tools/make_icons.py)."""
+    image = Gtk.Image(icon_name="dose-unit-%s-symbolic" % (unit if unit in UNIT_ICONS else "pill"), pixel_size=18)
+    box = Gtk.CenterBox(valign=Gtk.Align.CENTER, halign=Gtk.Align.START, hexpand=False)
+    box.set_size_request(34, 34)
+    box.set_center_widget(image)
+    box.add_css_class("dose-unit")
+    return box
 
 
 def make_label(text, css=None, xalign=0.0, wrap=False, **kw):
@@ -1736,6 +1776,7 @@ class DoseRow(Gtk.ListBoxRow):
         super().__init__(activatable=False)
         self.win, self.day, self.time, self.med = win, day, time_, med
         box = Gtk.Box(spacing=12, margin_top=10, margin_bottom=10, margin_start=14, margin_end=10)
+        box.append(unit_icon(med["unit"]))
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
         text.append(make_label(med_title(med), "heading", ellipsize=3))
         sub = fmt_amount(amount_at(med, time_), med["unit"])
@@ -1791,6 +1832,7 @@ class NeededRow(Gtk.ListBoxRow):
     def __init__(self, win, day, med, doses):
         super().__init__(activatable=False)
         box = Gtk.Box(spacing=12, margin_top=10, margin_bottom=10, margin_start=14, margin_end=10)
+        box.append(unit_icon(med["unit"]))
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
         text.append(make_label(med_title(med), "heading", ellipsize=3))
         if doses:
@@ -1895,6 +1937,7 @@ class MedicinesPage(Gtk.ScrolledWindow):
 
     def row(self, med):
         row = Adw.ActionRow(title=GLib.markup_escape_text(med_title(med)), activatable=True)
+        row.add_prefix(unit_icon(med["unit"]))
         sub = schedule_text(med) if med["schedule"].get("amounts") else \
             "%s · %s" % (fmt_amount(med["amount"], med["unit"]), schedule_text(med))
         if med["form"]:
@@ -2539,6 +2582,18 @@ class PrefsWindow(Gtk.Window):
         styles.connect("notify::selected", on_style)
         row.add_suffix(styles)
         lb.append(row)
+        row = Adw.ActionRow(title=tr("Colour"))
+        tones = Gtk.DropDown.new_from_strings([tr(t[1]) for t in TONES])
+        keys = [t[0] for t in TONES]
+        tones.set_selected(keys.index(p["tone"]) if p["tone"] in keys else 0)
+        tones.set_valign(Gtk.Align.CENTER)
+
+        def on_tone(d, _p):
+            set_pref("tone", TONES[d.get_selected()][0])
+            apply_style()
+        tones.connect("notify::selected", on_tone)
+        row.add_suffix(tones)
+        lb.append(row)
         row = Adw.ActionRow(title=tr("Language"), subtitle=tr("Applies the next time Dose opens."))
         dd = Gtk.DropDown.new_from_strings([tr(name) for _k, name in LANGUAGES])
         dd.set_selected([k for k, _n in LANGUAGES].index(p["language"]))
@@ -2748,16 +2803,9 @@ def _make_app_class():
         def do_activate(self):
             win = self.get_active_window()
             if not win:
-                css = Gtk.CssProvider()
-                try:
-                    css.load_from_string(CSS)          # GTK 4.12 and newer
-                except AttributeError:
-                    css.load_from_data(CSS.encode())
-                Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
-                                                          Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
                 # the app's icon when it isn't installed in the system (Windows, or from source)
                 theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-                dirs = [os.path.join(here(), "..", "data")]
+                dirs = [os.path.join(here(), "..", "data"), os.path.join(here(), "..", "data", "icons")]
                 if getattr(sys, "_MEIPASS", None):
                     dirs.insert(0, os.path.join(sys._MEIPASS, "share", "icons"))
                 for d in dirs:

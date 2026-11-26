@@ -1,5 +1,7 @@
 import Foundation
 import UserNotifications
+import AVFoundation
+import AudioToolbox
 
 /// Notifications when doses are due: one at the time (doses due together share one), and one
 /// more 30 minutes later if it isn't marked. "Taken" in the notification marks them; "Later"
@@ -21,6 +23,37 @@ enum Reminders {
 
     static var followUp: Bool { UserDefaults.standard.object(forKey: "followUp") as? Bool ?? true }
     static var discreet: Bool { UserDefaults.standard.bool(forKey: "discreet") }
+    /// timeSensitive (can break through a Focus), normal, quiet (no sound, no banner)
+    static var priority: String { UserDefaults.standard.string(forKey: "priority") ?? "normal" }
+    /// default (the iPhone's), chime, bell, soft, none
+    static var sound: String { UserDefaults.standard.string(forKey: "sound") ?? "default" }
+
+    /// Dose's own sounds (tools/make_sounds.py), at the top of the app where iOS looks for them.
+    static func soundFile(_ name: String) -> URL? { Bundle.main.url(forResource: name, withExtension: "wav") }
+
+    private static var notificationSound: UNNotificationSound? {
+        if priority == "quiet" { return nil }
+        switch sound {
+        case "none": return nil
+        case "chime", "bell", "soft": return UNNotificationSound(named: UNNotificationSoundName("\(sound).wav"))
+        default: return .default
+        }
+    }
+
+    private static var previewPlayer: AVAudioPlayer?
+
+    /// Plays a sound choice once, to hear it in Settings.
+    static func preview(_ name: String) {
+        switch name {
+        case "chime", "bell", "soft":
+            guard let url = soundFile(name) else { return }
+            try? AVAudioSession.sharedInstance().setCategory(.ambient)
+            previewPlayer = try? AVAudioPlayer(contentsOf: url)
+            previewPlayer?.play()
+        case "default": AudioServicesPlaySystemSound(1007)
+        default: break
+        }
+    }
 
     static func content(day: String, time: String, meds: [Medicine], again: Bool) -> UNMutableNotificationContent {
         let c = UNMutableNotificationContent()
@@ -33,7 +66,12 @@ enum Reminders {
             if meds.count == 1 { body += " · " + Units.amount(meds[0].amount(at: time), meds[0].unit) }
             c.body = body
         }
-        c.sound = .default
+        c.sound = notificationSound
+        switch priority {
+        case "timeSensitive": c.interruptionLevel = .timeSensitive
+        case "quiet": c.interruptionLevel = .passive
+        default: c.interruptionLevel = .active
+        }
         c.categoryIdentifier = category
         c.threadIdentifier = "dose"
         c.userInfo = ["day": day, "time": time]
