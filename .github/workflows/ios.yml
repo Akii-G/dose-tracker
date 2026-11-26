@@ -63,7 +63,7 @@ jobs:
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Dose.app Payload/
           # A placeholder signature; SideStore, AltStore or Feather re-sign it when installing.
-          ldid -Sios/Dose.entitlements Payload/Dose.app/Dose
+          ldid -SDose.entitlements Payload/Dose.app/Dose
           VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml)
           IPA="Dose-iPhone-$VERSION.ipa"
           zip -qry "$IPA" Payload
