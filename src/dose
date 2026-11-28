@@ -152,6 +152,21 @@ def pick_language():
     return wanted if wanted in ("en", "it") else "en"
 
 
+def app_icon_texture():
+    """The app icon as a picture, where the icon theme can't find it (a bundled Mac app)."""
+    if not getattr(sys, "frozen", False) or not IS_MAC:
+        return None
+    base = os.path.dirname(os.path.abspath(sys.executable))
+    for d in (getattr(sys, "_MEIPASS", ""), os.path.join(base, "..", "Resources"), os.path.join(base, "..", "Frameworks")):
+        f = os.path.join(d, "share", "icons", "hicolor", "256x256", "apps", APP_ID + ".png")
+        if os.path.isfile(f):
+            try:
+                return Gdk.Texture.new_from_filename(f)
+            except GLib.Error:
+                return None
+    return None
+
+
 def here():
     return os.path.dirname(os.path.realpath(os.path.abspath(__file__)))
 
@@ -2034,6 +2049,9 @@ class TodayPage(Gtk.ScrolledWindow):
             page = Adw.StatusPage(icon_name=APP_ID, title=tr("No medicines yet"),
                                   description=tr("Add the medicines you take, and Dose will remind you "
                                                  "when it's time and remember what you took."))
+            icon = app_icon_texture()
+            if icon:
+                page.set_paintable(icon)
             add = Gtk.Button(label=tr("Add a medicine"), halign=Gtk.Align.CENTER)
             add.add_css_class("suggested-action")
             add.add_css_class("pill")
