@@ -32,6 +32,8 @@ VERSION = "1.3.1"
 APP_ID = "app.dose.Dose"
 SYNC_PORT = 8766
 IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+MAC_SUPPORT = os.path.expanduser("~/Library/Application Support")
 
 # ----------------------------------------------------------------- languages
 # tr() and trn() look the English text up in po/it.po (or /usr/share/dose/po/it.po). The
@@ -47,6 +49,8 @@ def config_dir():
         return os.environ["DOSE_CONFIG_DIR"]
     if IS_WINDOWS:
         return os.path.join(GLib.get_user_data_dir(), "Dose", "settings")
+    if IS_MAC:      # ~/Library/Application Support/Dose/settings
+        return os.path.join(MAC_SUPPORT, "Dose", "settings")
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "dose")
 
 
@@ -56,6 +60,8 @@ def data_dir():
         path = os.environ["DOSE_DATA_DIR"]
     elif IS_WINDOWS:
         path = os.path.join(GLib.get_user_data_dir(), "Dose")
+    elif IS_MAC:    # ~/Library/Application Support/Dose (where Sottovoce looks for it)
+        path = os.path.join(MAC_SUPPORT, "Dose")
     else:
         path = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "dose")
     os.makedirs(path, exist_ok=True)
@@ -80,7 +86,7 @@ def save_config(cfg):
 
 
 PREF_DEFAULTS = {"language": "auto", "remind": True, "follow_up": True, "discreet": False,
-                 "sync": False, "style": "default", "tone": "violet"}
+                 "sync": False, "style": "tahoe" if IS_MAC else "default", "tone": "violet"}
 
 # Colour tones: accent, accent at night, "all taken", "some taken" and the ink on it. Violet is
 # Sottovoce's; the phones have the same tones (ui/Theme.kt, DoseApp.swift).
@@ -118,6 +124,15 @@ def system_language():
         if value:
             code = value.split(".")[0].split("_")[0].split("@")[0].lower()
             return "en" if code in ("c", "posix") else code
+    if IS_MAC:   # an app opened from the Dock has no LANG: ask macOS for the preferred language
+        try:
+            out = subprocess.run(["defaults", "read", "-g", "AppleLanguages"], capture_output=True,
+                                 text=True, timeout=3).stdout
+            first = re.search(r'"?([A-Za-z]{2,3})[-_A-Za-z]*"?', out.split("(", 1)[-1])
+            if first:
+                return first.group(1).lower()
+        except (OSError, subprocess.SubprocessError):
+            pass
     if IS_WINDOWS:   # Windows has no LANG: GLib reads the Windows display language
         for name in GLib.get_language_names():
             code = name.split(".")[0].split("_")[0].split("@")[0].lower()
@@ -1156,6 +1171,8 @@ def notify(title, body, actions, day=None, t=None):
     if IS_WINDOWS:
         win_toast(title, body, day, t, actions)
         return None
+    if IS_MAC:
+        return mac_notify(title, body, actions)
     exe = shutil.which("notify-send")
     if not exe:
         return None
@@ -1273,6 +1290,91 @@ def main():
         return 0
     return run_app()
 
+
+
+# ----------------------------------------------------------------- Mac
+# `Dose --background` is a launchd agent in ~/Library/LaunchAgents (started at login and kept
+# running). A reminder is a small macOS dialog with Taken and Later, through AppleScript: the
+# simplest way that works for an app that isn't signed by Apple.
+MAC_LABEL = "app.dose.Dose.background"
+
+
+def mac_agent_path():
+    return os.path.expanduser("~/Library/LaunchAgents/%s.plist" % MAC_LABEL)
+
+
+def mac_launchctl(*args):
+    try:
+        done = subprocess.run(["launchctl"] + list(args), capture_output=True, text=True, timeout=20)
+        return done.returncode == 0, (done.stderr or done.stdout).strip()
+    except (OSError, subprocess.SubprocessError) as err:
+        return False, str(err)
+
+
+def mac_domain():
+    return "gui/%d" % os.getuid()
+
+
+def mac_background_on():
+    """Writes the agent that runs `Dose --background` (this copy of Dose) and (re)loads it."""
+    import plistlib
+    path = mac_agent_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    agent = {"Label": MAC_LABEL, "ProgramArguments": self_command("--background"),
+             "RunAtLoad": True, "KeepAlive": True, "ProcessType": "Interactive"}
+    env = {k: os.environ[k] for k in ("DOSE_DATA_DIR", "DOSE_CONFIG_DIR", "DOSE_LANG") if os.environ.get(k)}
+    if env:
+        agent["EnvironmentVariables"] = env
+    with open(path, "wb") as f:
+        plistlib.dump(agent, f)
+    mac_launchctl("bootout", "%s/%s" % (mac_domain(), MAC_LABEL))
+    return mac_launchctl("bootstrap", mac_domain(), path)
+
+
+def mac_agent_args():
+    import plistlib
+    try:
+        with open(mac_agent_path(), "rb") as f:
+            return plistlib.load(f).get("ProgramArguments")
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return None
+
+
+def mac_background_off():
+    mac_launchctl("bootout", "%s/%s" % (mac_domain(), MAC_LABEL))
+    try:
+        os.remove(mac_agent_path())
+    except OSError:
+        pass
+
+
+def mac_background_running():
+    ok, out = mac_launchctl("print", "%s/%s" % (mac_domain(), MAC_LABEL))
+    return ok and "state = running" in out
+
+
+def mac_notify(title, body, actions=()):
+    """A dialog with the reminder's buttons (Taken, Later); returns the chosen key, or None.
+    Without buttons, a notification."""
+    def q(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if not actions:
+        script = "display notification %s with title %s sound name \"default\"" % (q(body), q(title))
+    else:
+        labels = [label for _key, label in actions]
+        script = ("display dialog %s with title %s buttons {%s} default button %s with icon note "
+                  "giving up after 21600" % (q(body), q(title), ", ".join(q(l) for l in reversed(labels)), q(labels[0])))
+    try:
+        done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=6 * 3600 + 60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    chosen = re.search(r"button returned:([^,]*)", done.stdout or "")
+    if not chosen:
+        return None
+    for key, label in actions:
+        if label == chosen.group(1).strip():
+            return key
+    return None
 
 # ----------------------------------------------------------------- Windows
 # No systemd and no notify-send: `Dose.exe --background` starts at login from the "Run" key
@@ -2468,7 +2570,7 @@ class SyncWindow(Gtk.Window):
             col.append(make_label(tr("Sync needs the python3-cryptography package."), "dose-late", wrap=True))
         if not background_running():
             col.append(make_label(tr("The background service isn't running, so the phone can't reach this PC. "
-                                     "Install Dose from the .deb, or run: dose --background") if not IS_WINDOWS else
+                                     "Install Dose from the .deb, or run: dose --background") if not (IS_WINDOWS or IS_MAC) else
                                   tr("The background part of Dose isn't running, so the phone can't reach this PC. "
                                      "Open Dose again, or reinstall it"), "dose-late", wrap=True))
 
@@ -2626,6 +2728,8 @@ class PrefsWindow(Gtk.Window):
 def background_running():
     if IS_WINDOWS:
         return win_background_running()
+    if IS_MAC:
+        return mac_background_running()
     if not shutil.which("systemctl"):
         return False
     out = subprocess.run(["systemctl", "--user", "is-active", "dose-background.service"],
@@ -2636,6 +2740,15 @@ def background_running():
 def start_background():
     """Turn on the user service from the .deb (reminders and sync) once, the first time Dose opens."""
     cfg = load_config()
+    if IS_MAC:         # a launchd agent: at every login, kept running
+        if not cfg.get("service_set"):
+            if mac_background_on()[0]:
+                cfg["service_set"] = True
+                save_config(cfg)
+        elif os.path.exists(mac_agent_path()) and (mac_agent_args() != self_command("--background")
+                                                   or not mac_background_running()):
+            mac_background_on()     # Dose moved (a new version in Applications), or it stopped
+        return
     if IS_WINDOWS:     # at every login from the Run key, and now if it isn't running
         if not cfg.get("service_set"):
             try:
@@ -2760,7 +2873,10 @@ class MainWindow(Adw.ApplicationWindow):
     def open_with_app(self, path):
         """Opens a file just made (the PDF) in the app that shows it."""
         try:
-            Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(path).get_uri(), None)
+            if IS_MAC:
+                subprocess.Popen(["open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(path).get_uri(), None)
         except GLib.Error:
             pass
 

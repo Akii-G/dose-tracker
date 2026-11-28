@@ -1,0 +1,102 @@
+name: Mac app
+
+on:
+  push:
+    paths: ["src/dose", "po/**", "data/**", "packaging/macos/**", "test/**", ".github/workflows/macos.yml"]
+  release:
+    types: [published]   # every release gets the Mac app attached
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15          # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GTK 4, libadwaita and Python from Homebrew
+        run: |
+          brew install gtk4 libadwaita adwaita-icon-theme pygobject3 py3cairo librsvg poppler
+          # the Python that Homebrew's PyGObject belongs to
+          for py in $(ls $(brew --prefix)/bin/python3.* 2>/dev/null | grep -E 'python3\.[0-9]+$' | sort -Vr) $(brew --prefix)/bin/python3; do
+            if "$py" -c "import gi, cairo" 2>/dev/null; then PY="$py"; break; fi
+          done
+          echo "Using $PY"; "$PY" --version
+          "$PY" -m pip install --break-system-packages --quiet pyinstaller cryptography openpyxl
+          echo "PY=$PY" >> "$GITHUB_ENV"
+
+      - name: Tests (the same app logic, on a Mac)
+        env:
+          GSK_RENDERER: cairo
+        run: |
+          set -e
+          for t in test/test_model.py test/test_sync.py test/test_windows.py test/test_mac.py; do
+            echo "== $t"; "$PY" "$t"
+          done
+
+      - name: The app icon
+        run: |
+          mkdir -p build/Dose.iconset
+          for s in 16 32 128 256 512; do
+            rsvg-convert -w $s -h $s data/app.dose.Dose.svg -o build/Dose.iconset/icon_${s}x${s}.png
+            rsvg-convert -w $((s * 2)) -h $((s * 2)) data/app.dose.Dose.svg -o build/Dose.iconset/icon_${s}x${s}@2x.png
+          done
+          iconutil -c icns build/Dose.iconset -o build/Dose.icns
+
+      - name: Bundle with PyInstaller
+        run: |
+          set -e
+          cp src/dose build/dose.py
+          "$PY" -m PyInstaller --noconfirm --clean --distpath dist --workpath build/pyinstaller packaging/macos/dose.spec
+          # an ad-hoc signature: Apple silicon runs nothing unsigned (it isn't a paid Apple signature)
+          codesign --force --deep --sign - dist/Dose.app
+          codesign --verify --deep dist/Dose.app
+          du -sh dist/Dose.app
+
+      - name: Check the bundled app (the window, in Italian, in both looks)
+        run: |
+          set -e
+          APP=dist/Dose.app/Contents/MacOS/Dose
+          export DOSE_DATA_DIR=$RUNNER_TEMP/data DOSE_CONFIG_DIR=$RUNNER_TEMP/config
+          mkdir -p "$DOSE_DATA_DIR" "$DOSE_CONFIG_DIR" screenshots
+          "$APP" --version
+          failed=0
+          for look in tahoe default; do
+            echo "{\"service_set\": true, \"style\": \"$look\"}" > "$DOSE_CONFIG_DIR/config.json"
+            DOSE_LANG=it "$APP" > "$RUNNER_TEMP/out-$look.txt" 2>&1 &
+            pid=$!
+            sleep 15
+            screencapture -x "screenshots/mac-$look.png" || true
+            if kill -0 $pid 2>/dev/null; then echo "$look: running"; kill $pid; else echo "$look: closed by itself"; cat "$RUNNER_TEMP/out-$look.txt"; failed=1; fi
+            sleep 2
+          done
+          exit $failed
+
+      - name: Make the disk image
+        run: |
+          VERSION=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' src/dose)
+          mkdir -p build/dmg
+          cp -R dist/Dose.app build/dmg/
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Dose" -srcfolder build/dmg -ov -format UDZO "Dose-Mac-$VERSION.dmg"
+          ls -la Dose-Mac-*.dmg
+          echo "DMG=Dose-Mac-$VERSION.dmg" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dose-Mac-dmg
+          path: Dose-Mac-*.dmg
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-screenshots
+          path: screenshots/
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "$DMG" --clobber --repo "${{ github.repository }}"
