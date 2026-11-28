@@ -1,7 +1,7 @@
 """Mac only (run by .github/workflows/macos.yml): the folders are in Application Support (where
 Sottovoce looks for Dose), the background part is a launchd agent with the phone sync, and a
 notification can be shown."""
-import os, sys, tempfile, time, plistlib, socket, importlib.machinery, importlib.util
+import os, sys, tempfile, time, plistlib, socket, subprocess, importlib.machinery, importlib.util
 if sys.platform != "darwin":
     print("mac: skipped (not a Mac)")
     sys.exit(0)
@@ -10,6 +10,18 @@ here = os.path.dirname(os.path.abspath(__file__))
 sys.argv = [os.path.join(here, "..", "src", "dose")]
 loader = importlib.machinery.SourceFileLoader("dose", sys.argv[0])
 spec = importlib.util.spec_from_loader("dose", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+
+def where_stuck(label):
+    """What a stuck launchd agent is doing: macOS's `sample` of its process."""
+    import re as _re
+    out = subprocess.run(["launchctl", "print", "gui/%d/%s" % (os.getuid(), label)], capture_output=True, text=True).stdout
+    pid = _re.search(r"\bpid = (\d+)", out)
+    if not pid:
+        return "not running:\n" + out[-1500:]
+    s = subprocess.run(["sample", pid.group(1), "2"], capture_output=True, text=True).stdout
+    lines = [l for l in s.splitlines() if "Thread_" in l or "+" in l][:120]
+    return "\n".join(lines)
+
 
 assert m.IS_MAC and m.prefs()["style"] == "tahoe"
 assert m.data_dir().endswith("Library/Application Support/Dose"), m.data_dir()
@@ -33,6 +45,7 @@ for _ in range(60):
 else:
     log = os.path.join(cfgdir, "background.log")
     print(open(log).read()[-4000:] if os.path.exists(log) else "no log")
+    print(where_stuck(m.MAC_LABEL))
     raise SystemExit("the background part isn't listening")
 assert m.mac_background_running() and m.background_running()
 print("background part with sync on %d: OK" % m.SYNC_PORT)
