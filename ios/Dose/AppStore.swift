@@ -50,6 +50,7 @@ final class AppStore {
     func save() {
         guard let file, let data = try? JSONEncoder().encode(state()) else { return }
         try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        SottovoceShare.write(self)   // Sottovoce on this iPhone reads it, when the user set it up
     }
 
     private func changed() {

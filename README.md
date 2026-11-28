@@ -76,7 +76,9 @@ If the phone can't reach the PC, allow port 8766 on the PC's firewall
 
 Sottovoce on the same PC reads Dose's medicines and doses for its doctor report, on Linux and on
 Windows. On Android, Sottovoce can also read Dose on the same phone, once you allow it in
-Sottovoce's Settings.
+Sottovoce's Settings. On iPhone, without a PC: in Dose, **Settings → Share with Sottovoce** saves
+one file (for example in *On My iPhone*) that Dose keeps up to date; in Sottovoce, **Settings →
+Dose on this iPhone**, choose that same file.
 
 ## Medicine list
 
