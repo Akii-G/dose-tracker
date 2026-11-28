@@ -134,6 +134,7 @@ enum Reminders {
             store.mark(slot.med.id, day: day, time: time, status: "taken", notify: false)
         }
         plan(store)              // no follow-up for what's taken, even if Dose was asleep
+        NextDoseActivity.refresh(store)
         store.onChange?()
     }
 

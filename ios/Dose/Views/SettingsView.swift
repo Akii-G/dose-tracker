@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("autoSync") private var autoSync = true
     @AppStorage("followUp") private var followUp = true
     @AppStorage("discreet") private var discreet = false
+    @AppStorage("liveActivity") private var liveActivity = true
     @AppStorage("priority") private var priority = "normal"
     @AppStorage("sound") private var sound = "default"
     @AppStorage("tone") private var tone = "violet"
@@ -62,6 +63,13 @@ struct SettingsView: View {
                     Text("Reminders")
                 } footer: {
                     Text("Discreet notifications say only \"Time for your 08:00 dose\", without the medicine's name.")
+                }
+                Section {
+                    Toggle("Next dose on the Lock Screen", isOn: $liveActivity)
+                } header: {
+                    Text("Lock Screen and Apple Watch")
+                } footer: {
+                    Text("Shows the next dose on the Lock Screen and in the Dynamic Island, with a Taken button. With watchOS 11 it also appears in your Apple Watch's Smart Stack. It updates when you mark a dose; iOS takes it away after about 8 hours, and Dose shows it again when you open it. With discreet notifications it shows only how many doses, not their names.")
                 }
                 Section {
                     Picker("Priority", selection: $priority) {
@@ -173,7 +181,9 @@ struct SettingsView: View {
                     + tr("What you had here stays; the backup only adds what's missing or newer.")
             }
             .onChange(of: followUp) { _, _ in Reminders.plan(store) }
-            .onChange(of: discreet) { _, _ in Reminders.plan(store) }
+            .onChange(of: discreet) { _, _ in Reminders.plan(store); NextDoseActivity.refresh(store) }
+            .onChange(of: liveActivity) { _, _ in NextDoseActivity.refresh(store) }
+            .onChange(of: tone) { _, _ in NextDoseActivity.refresh(store) }
             .onChange(of: priority) { _, _ in Reminders.plan(store) }
             .onChange(of: sound) { _, new in Reminders.preview(new); Reminders.plan(store) }
             .task {

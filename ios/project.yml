@@ -8,14 +8,15 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.4.1"
-    CURRENT_PROJECT_VERSION: "7"
+    MARKETING_VERSION: "1.5.0"
+    CURRENT_PROJECT_VERSION: "8"
 targets:
   Dose:
     type: application
     platform: iOS
     sources:
       - path: Dose
+      - path: DoseShared
       - path: ../data/medicines-it.tsv
         buildPhase: resources
       - path: ../data/sounds          # chime.wav, bell.wav, soft.wav at the top of the app, where iOS looks
@@ -27,6 +28,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: NO
+    dependencies:
+      - target: DoseWidgets      # the next-dose Live Activity, embedded in PlugIns
     info:
       path: Dose/Info.plist
       properties:
@@ -41,12 +44,36 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         NSLocalNetworkUsageDescription: Dose syncs your medicines with Dose on your PC over your home Wi-Fi.
         NSCameraUsageDescription: Dose reads the barcode on a medicine's box to fill in its name. Nothing is recorded or sent.
+        NSSupportsLiveActivities: true
         CFBundleURLTypes:
           - CFBundleURLName: io.github.akiig.dose
             CFBundleURLSchemes: [dose]
         LSApplicationQueriesSchemes: [sottovoce]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+  DoseWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"   # the Watch's Smart Stack layout (supplementalActivityFamilies)
+    sources:
+      - path: DoseWidgets
+      - path: DoseShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.akiig.dose.widgets
+        PRODUCT_NAME: DoseWidgets
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        ENABLE_PREVIEWS: NO
+    info:
+      path: DoseWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Dose
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
 schemes:
   Dose:
     build:

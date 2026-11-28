@@ -209,3 +209,11 @@
 "Send to Sottovoce now" = "Invia a Sottovoce ora";
 "Sottovoce isn't on this iPhone, or it's older than 2.5.1." = "Sottovoce non è su questo iPhone, oppure è più vecchia della 2.5.1.";
 "Without a PC: Dose sends your medicines and doses straight to Sottovoce on this iPhone, through a link between the two apps. Usually you don't need this button: in Sottovoce, Update from Dose asks Dose for them. Nothing goes on the internet." = "Senza PC: Dose invia i tuoi farmaci e le dosi direttamente a Sottovoce su questo iPhone, tramite un collegamento tra le due app. Di solito questo pulsante non serve: in Sottovoce, Aggiorna da Dose li chiede a Dose. Niente va su internet.";
+"%@ dose" = "%@ dose";
+"%@ doses" = "%@ dosi";
+"Not taken yet" = "Non ancora presa";
+"Next dose" = "Prossima dose";
+"Tomorrow" = "Domani";
+"Next dose on the Lock Screen" = "Prossima dose sulla schermata di blocco";
+"Lock Screen and Apple Watch" = "Schermata di blocco e Apple Watch";
+"Shows the next dose on the Lock Screen and in the Dynamic Island, with a Taken button. With watchOS 11 it also appears in your Apple Watch's Smart Stack. It updates when you mark a dose; iOS takes it away after about 8 hours, and Dose shows it again when you open it. With discreet notifications it shows only how many doses, not their names." = "Mostra la prossima dose sulla schermata di blocco e nella Dynamic Island, con un pulsante Presa. Con watchOS 11 compare anche nello Smart Stack del tuo Apple Watch. Si aggiorna quando segni una dose; iOS la toglie dopo circa 8 ore, e Dose la mostra di nuovo quando la apri. Con le notifiche discrete mostra solo quante dosi, senza i nomi.";

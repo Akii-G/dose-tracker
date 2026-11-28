@@ -9,7 +9,13 @@ struct DoseApp: App {
     @AppStorage("tone") private var tone = "violet"
 
     init() {
-        UserDefaults.standard.register(defaults: ["autoSync": true, "followUp": true, "discreet": false])
+        UserDefaults.standard.register(defaults: ["autoSync": true, "followUp": true, "discreet": false,
+                                                  "liveActivity": true])
+        // the Taken button on the lock screen, the Dynamic Island and the Watch runs here, in Dose
+        DoseActivityActions.takeHandler = { day, time in
+            AppStore.shared.load()            // Dose may have been asleep: read the file first
+            Reminders.takeAll(AppStore.shared, day: day, time: time)
+        }
         // set before launch finishes, so the buttons in a notification work when Dose wasn't running
         UNUserNotificationCenter.current().delegate = NotificationHandler.shared
         Reminders.register()
@@ -32,15 +38,18 @@ struct DoseApp: App {
                         guard let store else { return }
                         coordinator.syncSoon(store, delay: 2)
                         Reminders.plan(store)
+                        NextDoseActivity.refresh(store)
                     }
                     coordinator.syncSoon(store, delay: 0)
                     Reminders.plan(store)
+                    NextDoseActivity.refresh(store)
                 }
                 .onChange(of: phase) { _, newPhase in
                     if newPhase == .active {
                         store.load()      // a "Taken" from a notification may have changed the file
                         sync.syncSoon(store, delay: 0)
                         Reminders.plan(store)
+                        NextDoseActivity.refresh(store)
                     }
                 }
         }

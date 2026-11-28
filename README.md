@@ -39,6 +39,9 @@ with your PC (Linux or Windows) over your home Wi-Fi, encrypted. No account, no 
 - **Reminders**: a notification when a dose is due, with **Taken** and **Later** buttons, and
   one more after 30 minutes if it isn't marked. **Discreet** notifications don't name the
   medicine.
+- **Lock Screen and Apple Watch** (iPhone, iOS 18): the next dose stays on the Lock Screen and
+  in the Dynamic Island with a **Taken** button, and with watchOS 11 in the Apple Watch's Smart
+  Stack. With discreet notifications it shows only how many doses.
 
 Dose doesn't give medical advice and doesn't check interactions: it keeps track of what your
 doctor prescribed.
