@@ -19,36 +19,7 @@ struct SettingsView: View {
     @State private var exporting = false
     @State private var importing = false
     @State private var dataNote = ""
-    @State private var sharePlace = SottovoceShare.placeName
     @State private var shareNote = ""
-    @State private var reopen: URL?   // the file just saved, to be picked once more (see keepShare)
-
-    /// Save the file where the user chooses, then ask them to pick it once: only a picked file
-    /// gives a bookmark iOS still honours for writing after a restart (as in Sottovoce's backup).
-    private func share() {
-        shareNote = ""
-        guard let draft = try? SottovoceShare.draft(store) else { return }
-        FilePicker.present(saving: draft, onPick: { saved in
-            do {
-                try SottovoceShare.remember(file: saved)
-                sharePlace = SottovoceShare.placeName
-                reopen = saved
-            } catch {
-                shareNote = tr("Couldn't use that place (%@). Try another one.", error.localizedDescription)
-            }
-        })
-    }
-
-    private func keepShare(_ url: URL) {
-        do {
-            try SottovoceShare.remember(file: url)
-            sharePlace = SottovoceShare.placeName
-            shareNote = SottovoceShare.write(store).map { tr("Saved, but Dose can't update it there (%@). Try another place.", $0) }
-                ?? tr("Done: Dose keeps %@ up to date. Now choose it in Sottovoce.", sharePlace ?? url.lastPathComponent)
-        } catch {
-            shareNote = tr("Couldn't use that place (%@). Try another one.", error.localizedDescription)
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -160,26 +131,21 @@ struct SettingsView: View {
                     Text(dataNote.isEmpty ? tr("A backup is one file with all your medicines and doses. Restoring it on a new phone brings them back.") : dataNote)
                 }
                 Section {
-                    if let place = sharePlace {
-                        LabeledContent("File", value: place)
-                        Button("Save it somewhere else…") { share() }
-                        Button("Stop sharing", role: .destructive) {
-                            SottovoceShare.forget()
-                            sharePlace = nil
-                            shareNote = tr("Dose doesn't update the file any more. You can delete it in Files.")
-                        }
-                    } else {
-                        Button("Share with Sottovoce…") { share() }
+                    Button("Send to Sottovoce now") {
+                        shareNote = SottovoceShare.send(store) ? "" : tr("Couldn't prepare the data.")
                     }
-                    if let error = SottovoceShare.lastError {
-                        Text(tr("Couldn't update the file: %@", error)).font(.footnote).foregroundStyle(.red)
-                    } else if !shareNote.isEmpty {
-                        Text(shareNote).font(.footnote).foregroundStyle(.secondary)
+                    .disabled(!SottovoceShare.sottovoceInstalled)
+                    if !SottovoceShare.sottovoceInstalled {
+                        Text("Sottovoce isn't on this iPhone, or it's older than 2.5.1.").font(.footnote).foregroundStyle(.secondary)
+                    } else if let sent = SottovoceShare.lastSent {
+                        Text(tr("Last sent: %@", sent.formatted(date: .abbreviated, time: .shortened)))
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
+                    if !shareNote.isEmpty { Text(shareNote).font(.footnote).foregroundStyle(.red) }
                 } header: {
                     Text("Sottovoce on this iPhone")
                 } footer: {
-                    Text("Without a PC: save a file once, for example in On My iPhone. Dose keeps it up to date after each change, and Sottovoce reads it: in Sottovoce, open Settings › Dose on this iPhone and choose the same file. Nothing goes on the internet, unless you save it in iCloud Drive.")
+                    Text("Without a PC: Dose sends your medicines and doses straight to Sottovoce on this iPhone, through a link between the two apps. Usually you don't need this button: in Sottovoce, Update from Dose asks Dose for them. Nothing goes on the internet.")
                 }
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
@@ -192,16 +158,6 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $reporting) { ReportView() }
-            .alert(Text("One more step"), isPresented: Binding(get: { reopen != nil }, set: { if !$0 { reopen = nil } })) {
-                Button("Choose the file") {
-                    let folder = reopen?.deletingLastPathComponent()
-                    reopen = nil
-                    FilePicker.present(saving: nil, startIn: folder, onPick: { keepShare($0) })
-                }
-                Button("Not now", role: .cancel) { reopen = nil }
-            } message: {
-                Text("So that iOS lets Dose keep updating the file after the app restarts, tap the file you just saved: dose-for-sottovoce.json.")
-            }
             .fileExporter(isPresented: $exporting, document: BackupDocument(data: Backup.data(store)), contentType: .json,
                           defaultFilename: "Dose-backup-\(Day.today)") { result in
                 if case .success = result { dataNote = tr("Backed up. Keep the file somewhere safe, like your cloud or a computer.") }

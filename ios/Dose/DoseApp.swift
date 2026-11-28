@@ -22,6 +22,10 @@ struct DoseApp: App {
                 .environment(sync)
                 .tint(Palette.accent)
                 .id(tone)                     // a new colour tone redraws everything in it
+                .onOpenURL { url in
+                    // Sottovoce on this iPhone asks for the doses: send them straight back
+                    if url.scheme == "dose", url.host == "share" { SottovoceShare.send(store) }
+                }
                 .onAppear {
                     let coordinator = sync
                     store.onChange = { [weak store] in

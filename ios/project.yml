@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.4.0"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "1.4.1"
+    CURRENT_PROJECT_VERSION: "7"
 targets:
   Dose:
     type: application
@@ -41,6 +41,10 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         NSLocalNetworkUsageDescription: Dose syncs your medicines with Dose on your PC over your home Wi-Fi.
         NSCameraUsageDescription: Dose reads the barcode on a medicine's box to fill in its name. Nothing is recorded or sent.
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.akiig.dose
+            CFBundleURLSchemes: [dose]
+        LSApplicationQueriesSchemes: [sottovoce]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
 schemes:

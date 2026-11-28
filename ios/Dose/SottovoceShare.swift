@@ -1,95 +1,46 @@
 import Foundation
+import UIKit
 
-/// Share with Sottovoce on this iPhone, without a PC: Dose keeps a file up to date where the user
-/// saved it once (On My iPhone, iCloud Drive…), and Sottovoce reads that same file. The file is
-/// dose.json, the format Sottovoce already reads on the PC. Remembered as a security-scoped
-/// bookmark. (A file, not a folder: picking a folder doesn't work with every iPhone and install
-/// method; saving one file works everywhere.)
+/// Sottovoce on this iPhone, without a PC. iPhone apps can't read each other's files, and on
+/// some phones and install methods the Files picker can't open a file at all; app links work
+/// everywhere. So Dose sends its medicines and recent doses inside a link to Sottovoce:
+///   sottovoce://dose#<base64url of the zlib-compressed JSON, dose.json's format>
+/// either when you tap Send to Sottovoce, or when Sottovoce asks with dose://share.
 enum SottovoceShare {
-    static let fileName = "dose-for-sottovoce.json"
-    private static let key = "sottovoceFile"
-    /// The file picked in this session: used directly, it doesn't depend on the bookmark.
-    nonisolated(unsafe) private static var picked: URL?
+    static let days = 400   // doses older than this aren't needed by Sottovoce
 
-    static var placeName: String? { UserDefaults.standard.string(forKey: "sottovoceFileName") }
+    static var sottovoceInstalled: Bool {
+        URL(string: "sottovoce://").map { UIApplication.shared.canOpenURL($0) } ?? false
+    }
 
+    /// Medicines and the doses of the last `days` days, compressed for a link.
     @MainActor
-    static func content(_ store: AppStore) throws -> Data {
+    static func payload(_ store: AppStore) -> String? {
+        let state = store.state()
+        let since = Day.adding(-days, to: Day.today)
+        let recent = DoseState(medicines: state.medicines, doses: state.doses.filter { $0.day >= since }, deleted: [])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(store.state())
+        guard let json = try? encoder.encode(recent),
+              let packed = try? (json as NSData).compressed(using: .zlib) as Data else { return nil }
+        return packed.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
-    /// A first copy in the app's temporary folder, for the Save picker to put where you choose.
-    @MainActor
-    static func draft(_ store: AppStore) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sottovoce-draft", isDirectory: true)
-        try? FileManager.default.removeItem(at: dir)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(fileName)
-        try content(store).write(to: url, options: .atomic)
-        return url
-    }
-
-    /// Remember the saved file, so Dose can keep writing to it after restarting.
-    static func remember(file: URL) throws {
-        let ok = file.startAccessingSecurityScopedResource()
-        defer { if ok { file.stopAccessingSecurityScopedResource() } }
-        // No .minimalBookmark: on iPhone that kind of bookmark loses the permission to write.
-        let data = try file.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-        picked = file
-        UserDefaults.standard.set(data, forKey: key)
-        UserDefaults.standard.set(file.deletingLastPathComponent().lastPathComponent + " › " + file.lastPathComponent,
-                                  forKey: "sottovoceFileName")
-    }
-
-    static func forget() {
-        picked = nil
-        UserDefaults.standard.removeObject(forKey: key)
-        UserDefaults.standard.removeObject(forKey: "sottovoceFileName")
-        UserDefaults.standard.removeObject(forKey: "sottovoceError")
-    }
-
-    static var lastError: String? {
-        placeName == nil ? nil : UserDefaults.standard.string(forKey: "sottovoceError")
-    }
-
-    private static func file() -> URL? {
-        if let picked { return picked }
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        var stale = false
-        guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
-        else { return nil }
-        if stale { try? remember(file: url) }
-        picked = url
-        return url
-    }
-
-    /// Write the file again (after each change). Returns why it failed, or nil.
+    /// Open Sottovoce with Dose's data. False when Sottovoce isn't there to take it.
     @MainActor
     @discardableResult
-    static func write(_ store: AppStore) -> String? {
-        guard placeName != nil else { return nil }
-        guard let url = file() else { return note(tr("Couldn't find the file. Save it again.")) }
-        let ok = url.startAccessingSecurityScopedResource()
-        defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try content(store)
-            var failure: Error?
-            var coordination: NSError?
-            NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordination) { target in
-                do { try data.write(to: target, options: .atomic) } catch { failure = error }
-            }
-            if let error = failure ?? coordination.map({ $0 as Error }) { return note(error.localizedDescription) }
-            return note(nil)
-        } catch {
-            return note(error.localizedDescription)
+    static func send(_ store: AppStore) -> Bool {
+        guard let data = payload(store), let url = URL(string: "sottovoce://dose#" + data) else { return false }
+        UIApplication.shared.open(url) { opened in
+            if opened { UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "sentToSottovoce") }
         }
+        return true
     }
 
-    private static func note(_ error: String?) -> String? {
-        if let error { UserDefaults.standard.set(error, forKey: "sottovoceError") }
-        else { UserDefaults.standard.removeObject(forKey: "sottovoceError") }
-        return error
+    static var lastSent: Date? {
+        let t = UserDefaults.standard.double(forKey: "sentToSottovoce")
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
     }
 }
