@@ -21,14 +21,10 @@ enum SyncError: LocalizedError {
 }
 
 enum SyncClient {
-    static var token: String { (UserDefaults.standard.string(forKey: "token") ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-    static var server: String { (UserDefaults.standard.string(forKey: "server") ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-    static var isConfigured: Bool { !server.isEmpty && !token.isEmpty }
-
     /// "pop-os.local:8766", "192.168.1.5:8766" or a full URL.
-    static func baseURL() throws -> URL {
-        var raw = server
-        if raw.isEmpty || token.isEmpty { throw SyncError.notConfigured }
+    static func baseURL(_ pc: PCLink) throws -> URL {
+        var raw = pc.cleanServer
+        if raw.isEmpty || pc.cleanToken.isEmpty { throw SyncError.notConfigured }
         if !raw.lowercased().hasPrefix("http://") && !raw.lowercased().hasPrefix("https://") { raw = "http://" + raw }
         while raw.hasSuffix("/") { raw.removeLast() }
         guard let url = URL(string: raw), url.host != nil else { throw SyncError.badAddress }
@@ -37,8 +33,9 @@ enum SyncClient {
     }
 
     /// Sends `payload` encrypted to `path` and returns the decrypted reply. The token is only the key.
-    static func request(_ path: String, payload: Data) async throws -> Data {
-        var req = URLRequest(url: try baseURL().appendingPathComponent(String(path.dropFirst())))
+    static func request(_ path: String, payload: Data, pc: PCLink) async throws -> Data {
+        let token = pc.cleanToken
+        var req = URLRequest(url: try baseURL(pc).appendingPathComponent(String(path.dropFirst())))
         req.httpMethod = "POST"
         req.timeoutInterval = 20
         req.httpBody = try SyncCrypto.seal(payload, token: token, path: path)
@@ -68,8 +65,8 @@ enum SyncClient {
         }
     }
 
-    static func ping() async throws -> String {
-        let data = try await request("/api/e/ping", payload: Data("{}".utf8))
+    static func ping(_ pc: PCLink) async throws -> String {
+        let data = try await request("/api/e/ping", payload: Data("{}".utf8), pc: pc)
         let doc = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         return tr("Connected to Dose %@ on your PC (encrypted)", (doc?["version"] as? String) ?? "?")
     }
@@ -82,11 +79,11 @@ enum SyncClient {
     }
 
     @MainActor
-    static func sync(_ store: AppStore) async throws -> Int {
+    static func sync(_ store: AppStore, pc: PCLink) async throws -> Int {
         let s = store.state()
         let body = try JSONEncoder().encode(Outgoing(medicines: s.medicines, doses: s.doses, deleted: s.deleted,
                                                      device: UIDevice.current.name))
-        let data = try await request("/api/e/sync", payload: body)
+        let data = try await request("/api/e/sync", payload: body, pc: pc)
         guard let remote = try? JSONDecoder().decode(DoseState.self, from: data) else {
             throw SyncError.server(tr("Your PC sent something unexpected. Update Dose on your PC."))
         }
@@ -104,7 +101,7 @@ final class SyncCoordinator {
     @ObservationIgnored private var again = false
 
     func syncSoon(_ store: AppStore, delay: Double) {
-        guard UserDefaults.standard.bool(forKey: "autoSync"), SyncClient.isConfigured else { return }
+        guard UserDefaults.standard.bool(forKey: "autoSync"), !PCList.shared.configured.isEmpty else { return }
         pending?.cancel()
         pending = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
@@ -113,17 +110,52 @@ final class SyncCoordinator {
         }
     }
 
+    /// Syncs with every PC in turn. When a later PC brings something new, the earlier
+    /// ones get a second round, so every PC ends up with everything.
     func run(_ store: AppStore) async {
         if busy { again = true; return }
+        let list = PCList.shared
+        let pcs = list.configured
+        guard !pcs.isEmpty else {
+            status = SyncError.notConfigured.localizedDescription
+            return
+        }
         busy = true
-        do {
-            let changes = try await SyncClient.sync(store)
-            status = changes > 0 ? trn("Synced at %2$@ · %1$@ change", "Synced at %2$@ · %1$@ changes", changes, Day.nowTime)
-                : tr("Synced at %@", Day.nowTime)
+        var changes = 0
+        var failed: [String: String] = [:]
+        var stopped = false
+        rounds: for round in 0..<2 {
+            var newFromLater = false
+            for (i, pc) in pcs.enumerated() {
+                if round == 1 && failed[pc.id] != nil { continue }
+                do {
+                    let n = try await SyncClient.sync(store, pc: pc)
+                    changes += n
+                    if n > 0 && i > 0 { newFromLater = true }
+                    failed[pc.id] = nil
+                    list.status[pc.id] = tr("Synced at %@", Day.nowTime)
+                } catch is CancellationError {
+                    stopped = true
+                    break rounds
+                } catch {
+                    failed[pc.id] = error.localizedDescription
+                    list.status[pc.id] = error.localizedDescription
+                }
+            }
+            if !newFromLater || pcs.count < 2 { break }
+        }
+        if !stopped {
+            if failed.count == pcs.count {
+                status = pcs.count == 1 ? failed[pcs[0].id]! : tr("Couldn't sync with any PC. Tap one in Settings to see why.")
+            } else {
+                var text = changes > 0 ? trn("Synced at %2$@ · %1$@ change", "Synced at %2$@ · %1$@ changes", changes, Day.nowTime)
+                    : tr("Synced at %@", Day.nowTime)
+                for pc in pcs where failed[pc.id] != nil {
+                    text += "\n" + tr("%@: not reached", pc.title)
+                }
+                status = text
+            }
             if changes > 0 { Reminders.plan(store) }
-        } catch is CancellationError {
-        } catch {
-            status = error.localizedDescription
         }
         busy = false
         if again {

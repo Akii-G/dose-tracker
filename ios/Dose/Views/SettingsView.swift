@@ -5,8 +5,8 @@ import UserNotifications
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
     @Environment(SyncCoordinator.self) private var sync
-    @AppStorage("server") private var server = ""
-    @AppStorage("token") private var token = ""
+    @State private var pcs = PCList.shared
+    @State private var editing: String?      // the id of the PC open in PCEditView
     @AppStorage("autoSync") private var autoSync = true
     @AppStorage("followUp") private var followUp = true
     @AppStorage("discreet") private var discreet = false
@@ -14,7 +14,6 @@ struct SettingsView: View {
     @AppStorage("priority") private var priority = "normal"
     @AppStorage("sound") private var sound = "default"
     @AppStorage("tone") private var tone = "violet"
-    @State private var testing = ""
     @State private var allowed: UNAuthorizationStatus = .notDetermined
     @State private var reporting = false
     @State private var exporting = false
@@ -26,29 +25,37 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Address, e.g. pop-os.local:8766", text: $server)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Token", text: $token)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .font(.body.monospaced())
-                    Toggle("Sync automatically", isOn: $autoSync)
-                    Button("Test the connection") {
-                        testing = tr("Connecting…")
-                        Task {
-                            do { testing = try await SyncClient.ping() } catch { testing = error.localizedDescription }
+                    ForEach(pcs.items) { pc in
+                        Button {
+                            editing = pc.id
+                        } label: {
+                            HStack {
+                                Image(systemName: "desktopcomputer").foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(pc.title).foregroundStyle(.primary)
+                                    Text(pcs.status[pc.id] ?? (pc.isConfigured ? pc.cleanServer : tr("Address and token missing")))
+                                        .font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
                         }
                     }
+                    Button {
+                        let pc = PCLink()
+                        pcs.items.append(pc)
+                        editing = pc.id
+                    } label: {
+                        Label(pcs.items.isEmpty ? tr("Add your PC") : tr("Add another PC"), systemImage: "plus")
+                    }
+                    Toggle("Sync automatically", isOn: $autoSync)
                     Button("Sync now") { Task { await sync.run(store) } }
-                        .disabled(sync.busy || !SyncClient.isConfigured)
-                    if !testing.isEmpty { Text(testing).font(.footnote).foregroundStyle(.secondary) }
+                        .disabled(sync.busy || pcs.configured.isEmpty)
                     Text(sync.status).font(.footnote).foregroundStyle(.secondary)
                 } header: {
-                    Text("Sync with your PC")
+                    Text(pcs.items.count > 1 ? tr("Sync with your PCs") : tr("Sync with your PC"))
                 } footer: {
-                    Text("On the PC: Dose → ☰ → Phone sync. Switch it on, then copy the address and the token here. Everything is encrypted with the token and stays on your home Wi-Fi.")
+                    Text("On the PC: Dose → ☰ → Phone sync. Switch it on, then copy the address and the token here. Everything is encrypted with the token and stays on your home Wi-Fi. With more than one PC, the iPhone syncs with each, and passes what you mark on one PC to the others.")
                 }
                 Section {
                     if allowed == .denied {
@@ -165,6 +172,9 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationDestination(item: $editing) { id in
+                PCEditView(id: id)
+            }
             .sheet(isPresented: $reporting) { ReportView() }
             .fileExporter(isPresented: $exporting, document: BackupDocument(data: Backup.data(store)), contentType: .json,
                           defaultFilename: "Dose-backup-\(Day.today)") { result in
