@@ -1321,7 +1321,9 @@ def mac_background_on():
     path = mac_agent_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     agent = {"Label": MAC_LABEL, "ProgramArguments": self_command("--background"),
-             "RunAtLoad": True, "KeepAlive": True, "ProcessType": "Interactive"}
+             "RunAtLoad": True, "KeepAlive": True, "ProcessType": "Interactive",
+             "StandardOutPath": os.path.join(config_dir(), "background.log"),
+             "StandardErrorPath": os.path.join(config_dir(), "background.log")}
     env = {k: os.environ[k] for k in ("DOSE_DATA_DIR", "DOSE_CONFIG_DIR", "DOSE_LANG") if os.environ.get(k)}
     if env:
         agent["EnvironmentVariables"] = env

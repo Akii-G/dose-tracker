@@ -31,7 +31,9 @@ for _ in range(60):
     except OSError:
         time.sleep(0.5)
 else:
-    raise SystemExit("the background part isn't listening: " + m.mac_launchctl("print", "%s/%s" % (m.mac_domain(), m.MAC_LABEL))[1][-2000:])
+    log = os.path.join(cfgdir, "background.log")
+    print(open(log).read()[-4000:] if os.path.exists(log) else "no log")
+    raise SystemExit("the background part isn't listening")
 assert m.mac_background_running() and m.background_running()
 print("background part with sync on %d: OK" % m.SYNC_PORT)
 m.mac_background_off()
