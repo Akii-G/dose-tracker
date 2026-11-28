@@ -63,12 +63,15 @@ jobs:
           mkdir -p "$DOSE_DATA_DIR" "$DOSE_CONFIG_DIR" screenshots
           "$APP" --version
           failed=0
-          for look in tahoe default; do
+          for run in tahoe:gl default:gl tahoe:cairo; do
+            look=${run%%:*}; renderer=${run##*:}
+            if [ "$renderer" = cairo ]; then export GSK_RENDERER=cairo; else unset GSK_RENDERER; fi
             echo "{\"service_set\": true, \"style\": \"$look\"}" > "$DOSE_CONFIG_DIR/config.json"
             DOSE_LANG=it "$APP" > "$RUNNER_TEMP/out-$look.txt" 2>&1 &
             pid=$!
             sleep 15
-            screencapture -x "screenshots/mac-$look.png" || true
+            screencapture -x "screenshots/mac-$look-$renderer.png" || true
+            echo "== log $run"; cat "$RUNNER_TEMP/out-$look.txt"
             if kill -0 $pid 2>/dev/null; then echo "$look: running"; kill $pid; else echo "$look: closed by itself"; cat "$RUNNER_TEMP/out-$look.txt"; failed=1; fi
             sleep 2
           done
