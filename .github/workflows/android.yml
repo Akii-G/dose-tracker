@@ -30,7 +30,7 @@ jobs:
 
       - name: Check encryption, merging, schedules and reminders (unit tests)
         working-directory: android
-        run: ./gradlew --no-daemon testDebugUnitTest --tests 'io.github.akiig.dose.ModelTest'
+        run: ./gradlew --no-daemon testDebugUnitTest --tests 'io.github.akiig.dose.ModelTest' --tests 'io.github.akiig.dose.PCLinkTest'
 
       - name: Build the signed .apk
         working-directory: android

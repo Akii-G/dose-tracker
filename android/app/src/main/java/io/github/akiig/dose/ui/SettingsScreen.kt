@@ -1,5 +1,16 @@
 package io.github.akiig.dose.ui
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import io.github.akiig.dose.PCLink
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -59,8 +70,13 @@ fun SettingsScreen(onReport: () -> Unit = {}) {
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var server by remember { mutableStateOf(app.prefs.server) }
-    var token by remember { mutableStateOf(app.prefs.token) }
+    val prefs = app.prefs
+    var pcs by remember { mutableStateOf(prefs.pcs) }
+    var openPC by remember { mutableStateOf<String?>(null) }      // the PC whose fields are shown
+    var confirmRemove by remember { mutableStateOf<String?>(null) }
+    fun changePC(id: String, change: (PCLink) -> PCLink) {
+        prefs.updatePC(id, change); pcs = prefs.pcs
+    }
     var testing by remember { mutableStateOf("") }
     var allowed by remember { mutableStateOf(Reminders.canNotify(context)) }
     val lifecycle = LocalLifecycleOwner.current
@@ -97,30 +113,80 @@ fun SettingsScreen(onReport: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         LargeTitle(tr("Settings"))
         Page {
-            Section(tr("Sync with your PC"),
-                footer = tr("On the PC: Dose → ☰ → Phone sync. Switch it on, then copy the address and the token here. Everything is encrypted with the token and stays on your home Wi-Fi.")) {
-                FieldRow("", server, { server = it.trim(); app.prefs.server = server }, placeholder = tr("Address, e.g. pop-os.local:8766"),
-                    keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri, capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
-                Line()
-                FieldRow("", token, { token = it.trim(); app.prefs.token = token }, placeholder = tr("Token"),
-                    keyboard = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+            Section(if (pcs.size > 1) tr("Sync with your PCs") else tr("Sync with your PC"),
+                footer = tr("On the PC: Dose → ☰ → Phone sync. Switch it on, then copy the address and the token here. Everything is encrypted with the token and stays on your home Wi-Fi. With more than one PC, the phone syncs with each, and passes what you mark on one PC to the others.")) {
+                for (pc in pcs) {
+                    val open = openPC == pc.id
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        .clickable {
+                            openPC = if (open) null else pc.id
+                            testing = ""
+                            prefs.pcs = prefs.pcs.filter { it.id == pc.id || it.server.isNotBlank() || it.token.isNotBlank() }
+                            pcs = prefs.pcs
+                        }
+                        .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Computer, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.size(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(pc.title, style = MaterialTheme.typography.bodyLarge)
+                            Text(app.sync.pcStatus[pc.id] ?: if (pc.isConfigured) pc.server.trim() else tr("Address and token missing"),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                        }
+                        Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, null,
+                            tint = MaterialTheme.colorScheme.outline)
+                    }
+                    if (open) {
+                        Column(Modifier.padding(start = 36.dp)) {
+                            FieldRow("", pc.name, { v -> changePC(pc.id) { it.copy(name = v) } }, placeholder = tr("Name, e.g. Mac or Living room PC"))
+                            Line()
+                            FieldRow("", pc.server, { v -> changePC(pc.id) { it.copy(server = v.trim()) } }, placeholder = tr("Address, e.g. pop-os.local:8766"),
+                                keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri, capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+                            Line()
+                            FieldRow("", pc.token, { v -> changePC(pc.id) { it.copy(token = v.trim()) } }, placeholder = tr("Token"),
+                                keyboard = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+                            Line()
+                            ActionRow(tr("Test the connection"), enabled = pc.isConfigured) {
+                                testing = tr("Connecting…")
+                                scope.launch {
+                                    testing = try { withContext(Dispatchers.IO) { app.client.forPC(pc).ping() } }
+                                              catch (e: SyncException) { e.message ?: "" }
+                                              catch (e: Exception) { e.localizedMessage ?: e.javaClass.simpleName }
+                                }
+                            }
+                            if (testing.isNotEmpty()) Note(testing)
+                            Line()
+                            ActionRow(tr("Remove this PC"), destructive = true) { confirmRemove = pc.id }
+                        }
+                    }
+                    Line()
+                }
+                ActionRow(if (pcs.isEmpty()) tr("Add your PC") else tr("Add another PC")) {
+                    val pc = PCLink()
+                    prefs.pcs = prefs.pcs.filter { it.server.isNotBlank() || it.token.isNotBlank() } + pc
+                    pcs = prefs.pcs
+                    openPC = pc.id; testing = ""
+                }
                 Line()
                 SwitchRow(tr("Sync automatically"), app.autoSync) { app.chooseAutoSync(it) }
                 Line()
-                ActionRow(tr("Test the connection"), enabled = app.prefs.isConfigured) {
-                    testing = tr("Connecting…")
-                    scope.launch {
-                        testing = try { withContext(Dispatchers.IO) { app.client.ping() } }
-                                  catch (e: SyncException) { e.message ?: "" }
-                                  catch (e: Exception) { e.localizedMessage ?: e.javaClass.simpleName }
-                    }
-                }
-                Line()
-                ActionRow(tr("Sync now"), enabled = app.prefs.isConfigured, busy = app.sync.busy) {
+                ActionRow(tr("Sync now"), enabled = pcs.any { it.isConfigured }, busy = app.sync.busy) {
                     scope.launch { app.sync.run(app.store) }
                 }
-                if (testing.isNotEmpty()) Note(testing)
                 Note(app.sync.status)
+            }
+            confirmRemove?.let { id ->
+                AlertDialog(onDismissRequest = { confirmRemove = null },
+                    title = { Text(tr("Remove this PC?")) },
+                    text = { Text(tr("Only the connection is removed: your medicines and doses stay on the phone and on the PC.")) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            prefs.pcs = prefs.pcs.filter { it.id != id }; pcs = prefs.pcs
+                            app.sync.pcStatus.remove(id)
+                            if (openPC == id) openPC = null
+                            confirmRemove = null
+                        }) { Text(tr("Remove"), color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text(tr("Cancel")) } })
             }
             Section(tr("Reminders"),
                 footer = tr("Discreet notifications say only \"Time for your 08:00 dose\", without the medicine's name.")) {
