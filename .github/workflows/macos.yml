@@ -12,7 +12,15 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15          # Apple silicon
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15          # Apple silicon (M1 and newer)
+            arch: AppleSilicon
+          - runner: macos-15-intel    # Intel Macs
+            arch: Intel
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -85,19 +93,19 @@ jobs:
           mkdir -p build/dmg
           cp -R dist/Dose.app build/dmg/
           ln -s /Applications build/dmg/Applications
-          hdiutil create -volname "Dose" -srcfolder build/dmg -ov -format UDZO "Dose-Mac-$VERSION.dmg"
+          hdiutil create -volname "Dose" -srcfolder build/dmg -ov -format UDZO "Dose-Mac-$VERSION-${{ matrix.arch }}.dmg"
           ls -la Dose-Mac-*.dmg
-          echo "DMG=Dose-Mac-$VERSION.dmg" >> "$GITHUB_ENV"
+          echo "DMG=Dose-Mac-$VERSION-${{ matrix.arch }}.dmg" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Dose-Mac-dmg
+          name: Dose-Mac-${{ matrix.arch }}-dmg
           path: Dose-Mac-*.dmg
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: mac-screenshots
+          name: mac-screenshots-${{ matrix.arch }}
           path: screenshots/
 
       - name: Attach to the release
