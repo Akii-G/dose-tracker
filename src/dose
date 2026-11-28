@@ -23,6 +23,10 @@ import time
 import unicodedata
 import uuid
 
+# a Mac draws GTK windows reliably only with the cairo renderer (the GL one can leave them black)
+if sys.platform == "darwin":
+    os.environ.setdefault("GSK_RENDERER", "cairo")
+
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")

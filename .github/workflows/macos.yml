@@ -44,6 +44,8 @@ jobs:
             rsvg-convert -w $((s * 2)) -h $((s * 2)) data/app.dose.Dose.svg -o build/Dose.iconset/icon_${s}x${s}@2x.png
           done
           iconutil -c icns build/Dose.iconset -o build/Dose.icns
+          # a PNG too: the window's empty page shows it, and GTK on a Mac doesn't read colour SVGs
+          mkdir -p build/png && rsvg-convert -w 256 -h 256 data/app.dose.Dose.svg -o build/png/app.dose.Dose.png
 
       - name: Bundle with PyInstaller
         run: |
@@ -63,7 +65,7 @@ jobs:
           mkdir -p "$DOSE_DATA_DIR" "$DOSE_CONFIG_DIR" screenshots
           "$APP" --version
           failed=0
-          for run in tahoe:gl default:gl tahoe:cairo; do
+          for run in tahoe:app default:app; do
             look=${run%%:*}; renderer=${run##*:}
             if [ "$renderer" = cairo ]; then export GSK_RENDERER=cairo; else unset GSK_RENDERER; fi
             echo "{\"service_set\": true, \"style\": \"$look\"}" > "$DOSE_CONFIG_DIR/config.json"

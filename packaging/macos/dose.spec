@@ -7,6 +7,7 @@ version = re.search(r'^VERSION = "(.*)"', open(os.path.join(root, "src", "dose")
 datas = [(os.path.join(root, "po", "*.po"), "po"),
          (os.path.join(root, "data", "medicines-it.tsv"), "data"),
          (os.path.join(root, "data", "app.dose.Dose.svg"), "share/icons/hicolor/scalable/apps"),
+         (os.path.join(root, "build", "png", "app.dose.Dose.png"), "share/icons/hicolor/256x256/apps"),
          (os.path.join(root, "data", "icons", "hicolor", "scalable", "actions", "*.svg"), "share/icons/hicolor/scalable/actions")]
 
 a = Analysis(
